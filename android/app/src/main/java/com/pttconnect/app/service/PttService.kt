@@ -46,7 +46,12 @@ class PttService : Service() {
             description = "Shows while PTT Connect is listening to a channel"
             setShowBadge(false)
         })
-        val type = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+        // Location type only if the user granted location (Android 14 refuses it otherwise).
+        val graph = (application as PttApp).graph
+        val type = if (Build.VERSION.SDK_INT >= 30) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                (if (graph.location.hasPermission()) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
+        } else 0
         ServiceCompat.startForeground(this, NOTIF_ID, build("Connecting…", null), type)
 
         // Partial wake lock keeps the CPU alive for audio decoding while the screen is off.

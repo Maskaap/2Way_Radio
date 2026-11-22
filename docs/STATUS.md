@@ -48,6 +48,26 @@ Rule used here: something is ✅ only if it was **actually run and checked**. "W
 | People disconnected from live audio on delete/remove | 📝 Written | Uses LiveKit `deleteRoom` / `removeParticipant`; needs the 2-phone test |
 | Logo PTT button: ring static, only the H moves | 📝 Written | Layers checked: idle image matches original logo |
 
+## Messaging, GPS, geo-fencing, SOS (added)
+
+| Feature | State | Evidence / what's left |
+|---|---|---|
+| Instant messages, history, no duplicates on offline re-send, sync of missed messages | ✅ Tested (DB) | `supabase/tests/40_messaging_location_emergency_test.sql` |
+| Non-members can't read or send | ✅ Tested (DB) | |
+| Location reports, trail throttled to 1 point/minute, admin-only visibility | ✅ Tested (DB) | |
+| Geo-fence enter/exit alerts (no alert on first fix) | ✅ Tested (DB) | |
+| SOS: alert + channel message, repeat press doesn't duplicate, emergency talk-over, resolve/cancel permissions | ✅ Tested (DB) | |
+| Android chat screen, outbox, SOS hold button, alarm banner, location sharing | 📝 Written + syntax-checked | Needs the phone test |
+| Admin Map (live + trails + geo-fences), Alerts with alarm, Messages archive + CSV | 📝 Written + syntax-checked | Needs a browser test |
+
+## NFC checkpoints (added)
+
+| Feature | State | Evidence / what's left |
+|---|---|---|
+| Scans (known/unknown), duplicate filtering, admin-only registration, missed-checkpoint alerts that clear on the next scan | ✅ Tested (DB) | `supabase/tests/50_nfc_test.sql` |
+| Android NFC reading (app open + tap-to-open), register dialog, beep/vibrate | 📝 Written + syntax-checked | Needs a phone with NFC + a tag |
+| Admin Checkpoints tab, CSV export, map pins | 📝 Written + syntax-checked | Needs a browser test |
+
 ## Phase 2: not started (by design)
 
 - Bluetooth PTT buttons and speaker-mics. These are usually media-button (`KEYCODE_HEADSETHOOK` / `MEDIA_PLAY_PAUSE`) or vendor BLE protocols, handled per device.

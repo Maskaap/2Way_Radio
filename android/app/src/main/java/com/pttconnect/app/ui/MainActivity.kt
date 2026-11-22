@@ -37,6 +37,24 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent { PttTheme { Root() } }
+        handleNfcIntent(intent)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleNfcIntent(intent)
+    }
+
+    /** App opened (or brought forward) by tapping an NFC tag. */
+    private fun handleNfcIntent(i: android.content.Intent?) {
+        if (i?.action in setOf(android.nfc.NfcAdapter.ACTION_TECH_DISCOVERED, android.nfc.NfcAdapter.ACTION_TAG_DISCOVERED)) {
+            graph.nfc.onTagId(i?.getByteArrayExtra(android.nfc.NfcAdapter.EXTRA_ID))
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        graph.nfc.enable(this)
     }
 
     /** All key events pass through here first – this is where Volume Down becomes PTT. */
@@ -50,6 +68,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        graph.nfc.disable(this)
         graph.engine.releaseAll()
         super.onPause()
     }
@@ -61,11 +80,14 @@ class MainActivity : ComponentActivity() {
             add(Manifest.permission.RECORD_AUDIO)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
             if (Build.VERSION.SDK_INT >= 31) add(Manifest.permission.BLUETOOTH_CONNECT)
+            if (graph.settings.prefs.value.shareLocation) {
+                add(Manifest.permission.ACCESS_FINE_LOCATION); add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isEmpty()) then() else { onPermissions = then; permLauncher.launch(needed.toTypedArray()) }
     }
 
-    sealed interface Screen { data object Channels : Screen; data object Ptt : Screen; data object Settings : Screen; data object Subscription : Screen }
+    sealed interface Screen { data object Channels : Screen; data object Ptt : Screen; data object Settings : Screen; data object Subscription : Screen; data object Chat : Screen }
 
     @Composable
     private fun Root() {
@@ -95,8 +117,14 @@ class MainActivity : ComponentActivity() {
                     onSettings = { screen = Screen.Settings },
                     onSubscription = { screen = Screen.Subscription },
                 )
+                Screen.Chat -> ChatScreen(
+                    engine = graph.engine, chat = graph.chat,
+                    onBack = { screen = Screen.Ptt },
+                )
                 Screen.Ptt -> PttScreen(
                     engine = graph.engine, backend = graph.backend,
+                    chat = graph.chat, emergency = graph.emergency,
+                    onChat = { screen = Screen.Chat },
                     onChannels = { screen = Screen.Channels },
                     onSettings = { screen = Screen.Settings },
                     onEnterChannel = enter,
@@ -117,6 +145,7 @@ class MainActivity : ComponentActivity() {
                     },
                 )
             }
+            NfcOverlay(graph.nfc)
         }
     }
 }

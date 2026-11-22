@@ -19,6 +19,7 @@ data class PttPrefs(
     val pttKeyCodes: Set<Int> = setOf(KeyEvent.KEYCODE_VOLUME_DOWN),
     val audioOutput: AudioOutput = AudioOutput.SPEAKER,
     val vibrateOnGrant: Boolean = true,
+    val shareLocation: Boolean = true,
 )
 
 /** Local app settings (SharedPreferences, private to the app). */
@@ -52,6 +53,7 @@ class Settings(context: Context) {
             .putStringSet("ptt_keys", p.pttKeyCodes.map { it.toString() }.toSet())
             .putString("audio_out", p.audioOutput.name)
             .putBoolean("vibrate", p.vibrateOnGrant)
+            .putBoolean("share_location", p.shareLocation)
             .apply()
         _prefs.value = p
     }
@@ -67,8 +69,13 @@ class Settings(context: Context) {
             pttKeyCodes = sp.getStringSet("ptt_keys", null)?.mapNotNull { it.toIntOrNull() }?.toSet() ?: d.pttKeyCodes,
             audioOutput = runCatching { AudioOutput.valueOf(sp.getString("audio_out", null)!!) }.getOrDefault(d.audioOutput),
             vibrateOnGrant = sp.getBoolean("vibrate", d.vibrateOnGrant),
+            shareLocation = sp.getBoolean("share_location", d.shareLocation),
         )
     }
+
+    // ---- chat outbox (messages typed while offline) ----
+    fun saveOutbox(json: String) = sp.edit().putString("outbox", json).apply()
+    fun loadOutbox(): String = sp.getString("outbox", null) ?: "[]"
 
     // ---- auth session persistence ----
     fun saveSession(json: String?) = sp.edit().putString("session", json).apply()

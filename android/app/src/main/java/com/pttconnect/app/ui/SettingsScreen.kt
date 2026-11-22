@@ -50,6 +50,7 @@ fun SettingsScreen(settings: Settings, backend: Backend, keys: KeyRouter, onSubs
     val p by settings.prefs.collectAsState()
     var learning by remember { mutableStateOf(false) }
     var showPw by remember { mutableStateOf(false) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     DisposableEffect(Unit) { onDispose { keys.learner = null } }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -68,6 +69,22 @@ fun SettingsScreen(settings: Settings, backend: Backend, keys: KeyRouter, onSubs
         Text("Tone volume: ${p.toneVolume}%", color = Pal.text)
         Slider(p.toneVolume.toFloat(), { v -> settings.update { it.copy(toneVolume = v.toInt()) } }, valueRange = 0f..100f)
         Toggle("Vibrate when you get the channel", p.vibrateOnGrant) { v -> settings.update { it.copy(vibrateOnGrant = v) } }
+
+        Section("Location")
+        Toggle("Share my location while connected", p.shareLocation) { v -> settings.update { it.copy(shareLocation = v) } }
+        Note("Used for the dispatcher map, geo-fence alerts and to send your position with an SOS. " +
+            "Only administrators can see it. Turning this off removes you from the map.")
+
+        Section("NFC checkpoints")
+        val nfcStatus = remember { com.pttconnect.app.ptt.NfcCheckpoints.statusOf(ctx) }
+        Note(when (nfcStatus) {
+            com.pttconnect.app.ptt.NfcStatus.READY -> "NFC is on. Hold the back of the phone against a checkpoint tag to check in."
+            com.pttconnect.app.ptt.NfcStatus.OFF -> "NFC is switched off on this phone."
+            com.pttconnect.app.ptt.NfcStatus.UNAVAILABLE -> "This phone has no NFC reader."
+        })
+        if (nfcStatus == com.pttconnect.app.ptt.NfcStatus.OFF) OutlinedButton(onClick = {
+            runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_NFC_SETTINGS)) }
+        }) { Text("Turn on NFC") }
 
         Section("Audio output")
         Choice("Loudspeaker (default)", p.audioOutput == AudioOutput.SPEAKER) { settings.update { it.copy(audioOutput = AudioOutput.SPEAKER) } }

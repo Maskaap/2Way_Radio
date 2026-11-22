@@ -272,6 +272,11 @@ class PttEngine(
         held.clear()
     }
 
+    fun myUserId(): String? = backend.session.value?.userId
+
+    /** Broadcast a small hint ("sync", "alert") to everyone in the current channel. */
+    fun signal(text: String) = voice.signal(text)
+
     private fun flash(msg: String) = _state.update { it.copy(message = msg) }
 
     // ------------------------------------------------------------------ voice events
@@ -280,7 +285,11 @@ class PttEngine(
             is VoiceEvent.RemoteTalkStart, is VoiceEvent.Signal -> {
                 val (id, name) = when (e) {
                     is VoiceEvent.RemoteTalkStart -> e.userId to e.name
-                    is VoiceEvent.Signal -> if (e.text == "tx_start") e.userId to e.name else { remoteTalkers.remove(e.userId); updateSpeaker(); return }
+                    is VoiceEvent.Signal -> when (e.text) {
+                        "tx_start" -> e.userId to e.name
+                        "tx_end" -> { remoteTalkers.remove(e.userId); updateSpeaker(); return }
+                        else -> return   // chat / alert signals are handled elsewhere
+                    }
                     else -> return
                 }
                 val wasQuiet = remoteTalkers.isEmpty()

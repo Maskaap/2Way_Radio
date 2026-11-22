@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PTT Connect – Admin</title>
 <link rel="icon" type="image/png" href="/favicon.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --text:#e6edf3; --muted:#8b949e; --accent:#2ea043; --warn:#d29922; --bad:#f85149; }
@@ -35,6 +37,12 @@
   td textarea { min-height:90px; width:100%; }
   .money { max-width:110px; }
   .small { font-size:12px; }
+  #map { height:520px; border-radius:8px; border:1px solid var(--line); margin-bottom:14px; }
+  #sos-bar { display:none; position:sticky; top:0; z-index:2000; background:var(--bad); color:#fff; padding:12px 20px; font-weight:700; cursor:pointer; }
+  #sos-bar.on { display:block; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.65; } }
+  .badge { background:var(--bad); color:#fff; border-radius:10px; padding:0 6px; font-size:12px; margin-left:4px; }
+  .leaflet-popup-content { color:#111; }
 </style>
 </head>
 <body>
@@ -89,10 +97,12 @@ async function boot() {
   if (me.role !== "admin") { await sb.auth.signOut(); return loginView("This account is not an admin."); }
   app.innerHTML = `<header><img src="/logo.png" alt="" style="width:38px;height:38px"><h1>PTT Connect · Admin</h1><span class="sp"></span><span class="muted">${esc(me.display_name)}</span>
     <button class="btn" id="out">Sign out</button></header>
-    <nav>${["active","users","devices","channels","plans","subscriptions","settings","log","radios"].map(t => `<button data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</nav>
+    <nav>${["active","alerts","map","checkpoints","messages","users","devices","channels","plans","subscriptions","settings","log","radios"].map(t => `<button data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</nav>
+    <div id="sos-bar"></div>
     <main id="main"></main>`;
   out.onclick = async () => { await sb.auth.signOut(); loginView(); };
   document.querySelectorAll("nav button").forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  startAlertWatch();
   if (!floorSub) floorSub = sb.channel("admin-floor").on("postgres_changes", { event: "*", schema: "public", table: "floor_state" }, () => { if (tab === "active" || tab === "channels") render(); }).subscribe();
   render();
 }
@@ -101,8 +111,55 @@ async function render() {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.t === tab));
   const main = document.getElementById("main");
   main.innerHTML = `<p class="muted">Loading…</p>`;
-  main.innerHTML = await views[tab]();
+  if (mapTimer) { clearInterval(mapTimer); mapTimer = null; }
+  const out = await views[tab]();
+  main.innerHTML = typeof out === "string" ? out : out.html;
   main.querySelectorAll("[data-act]").forEach(el => el.onclick = () => actions[el.dataset.act](el.dataset));
+  if (typeof out === "object" && out.after) await out.after();
+}
+
+let mapTimer = null, lmap = null, alertSub = null, alarmCtx = null, alarmTimer = null, knownOpen = new Set();
+const ago2 = t => { const s = Math.round((Date.now() - new Date(t)) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s/60)} min ago` : new Date(t).toLocaleString(); };
+const gmaps = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
+
+// ---- Emergency watcher: live (Realtime) + 20 s safety poll. Loud beep until someone clicks the red bar.
+function startAlertWatch() {
+  if (alertSub) return;
+  alertSub = sb.channel("admin-alerts").on("postgres_changes", { event: "*", schema: "public", table: "alerts" }, () => checkAlerts()).subscribe();
+  setInterval(checkAlerts, 20000);
+  setInterval(() => sb.rpc("check_missed_checkpoints"), 60000);
+  checkAlerts();
+}
+async function checkAlerts() {
+  const { data } = await sb.from("alerts").select("id, kind, user_name, created_at, lat, lng").eq("kind", "emergency").in("status", ["open"]).order("id", { ascending: false });
+  const open = data || [];
+  const bar = document.getElementById("sos-bar"); if (!bar) return;
+  const fresh = open.filter(a => !knownOpen.has(a.id));
+  open.forEach(a => knownOpen.add(a.id));
+  const navBtn = document.querySelector('nav button[data-t="alerts"]');
+  if (navBtn) navBtn.innerHTML = "Alerts" + (open.length ? `<span class="badge">${open.length}</span>` : "");
+  if (open.length) {
+    bar.textContent = `🚨 EMERGENCY: ${open.map(a => a.user_name).join(", ")} – click to open Alerts`;
+    bar.classList.add("on");
+    bar.onclick = () => { stopAlarm(); tab = "alerts"; render(); };
+    if (fresh.length) startAlarm();
+  } else { bar.classList.remove("on"); stopAlarm(); }
+}
+function startAlarm() {
+  if (alarmTimer) return;
+  try { alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+  const beep = () => { const o = alarmCtx.createOscillator(), g = alarmCtx.createGain(); o.type = "square";
+    o.frequency.setValueAtTime(880, alarmCtx.currentTime); o.frequency.setValueAtTime(660, alarmCtx.currentTime + 0.25);
+    g.gain.value = 0.15; o.connect(g).connect(alarmCtx.destination); o.start(); o.stop(alarmCtx.currentTime + 0.5); };
+  beep(); alarmTimer = setInterval(beep, 1200);
+}
+function stopAlarm() { if (alarmTimer) { clearInterval(alarmTimer); alarmTimer = null; } }
+
+async function csvDownload(name, rows) {
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const text = "\ufeff" + rows.map(r => r.map(q).join(",")).join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
 }
 
 const views = {
@@ -114,6 +171,169 @@ const views = {
       <h2 style="margin-top:24px">Online (last 90 s) – ${users.length}</h2>
       <table><tr><th>User</th><th>Channel</th><th>Last seen</th></tr>${users.map(u => `<tr><td>${esc(u.display_name)}</td><td>${esc(u.channel_name ?? "–")}</td><td>${ago(u.last_seen_at)}</td></tr>`).join("") || `<tr><td colspan=3 class="muted">No one online</td></tr>`}</table>
       <p class="muted"><button class="btn" data-act="refresh">Refresh</button></p>`;
+  },
+  async alerts() {
+    const rows = await must(sb.from("alerts").select("*").order("id", { ascending: false }).limit(200));
+    const tag = st => `<span class="tag ${st === "open" ? "bad" : st === "acknowledged" ? "warn" : "on"}">${st}</span>`;
+    await sb.rpc("check_missed_checkpoints");
+    const kindTxt = k => ({ emergency: "🚨 Emergency", geofence_enter: "⬇ Entered zone", geofence_exit: "⬆ Left zone", checkpoint_missed: "📍 Missed checkpoint" }[k] || k);
+    return `<h2>Alerts</h2><p class="muted">Emergencies sound an alarm on this page and on phones in the same channel. Geo-fence alerts are listed here.</p>
+      <table><tr><th>Time</th><th>Type</th><th>Who</th><th>Details</th><th>Location</th><th>Status</th><th></th></tr>
+      ${rows.map(a => `<tr><td>${ago2(a.created_at)}</td><td>${kindTxt(a.kind)}</td><td>${esc(a.user_name ?? "–")}</td><td>${esc(a.message ?? "")}</td>
+        <td>${a.lat != null ? `<a href="${gmaps(a.lat, a.lng)}" target="_blank" rel="noopener" style="color:#58a6ff">${a.lat.toFixed(5)}, ${a.lng.toFixed(5)}</a>` : "–"}</td>
+        <td>${tag(a.status)}</td>
+        <td>${a.status === "open" ? `<button class="btn" data-act="alertSet" data-id="${a.id}" data-st="acknowledged">Acknowledge</button>` : ""}
+            ${a.status === "open" || a.status === "acknowledged" ? `<button class="btn ok" data-act="alertSet" data-id="${a.id}" data-st="resolved">Resolve</button>` : ""}</td></tr>`).join("")
+        || `<tr><td colspan=7 class="muted">No alerts</td></tr>`}</table>`;
+  },
+  async map() {
+    const html = `<h2>Live map</h2>
+      <p class="muted">Phones share their position while connected (if the user allows it). Green = updated in the last 2 minutes, grey = older.
+      <b>Click on the map to add a geo-fence.</b> Map data © OpenStreetMap contributors.</p>
+      <div id="map"></div>
+      <div id="map-side"></div>`;
+    const after = async () => {
+      lmap = L.map("map");
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" }).addTo(lmap);
+      lmap.setView([-28.5, 24.5], 5);   // South Africa
+      const people = L.layerGroup().addTo(lmap), zones = L.layerGroup().addTo(lmap), sos = L.layerGroup().addTo(lmap);
+      let trail = null, fitted = false;
+      lmap.on("click", async e => {
+        const name = prompt("Name for this geo-fence (e.g. Main depot):"); if (!name) return;
+        const radius = parseInt(prompt("Radius in metres:", "200") || "0", 10); if (!(radius >= 20)) return alert("Radius must be at least 20 m");
+        const { data: { user } } = await sb.auth.getUser();
+        await must(sb.from("geofences").insert({ name, lat: e.latlng.lat, lng: e.latlng.lng, radius_m: radius, created_by: user.id }));
+        draw();
+      });
+      async function draw() {
+        const tags = await must(sb.from("nfc_tags").select("name, site, lat, lng, active").not("lat", "is", null));
+        const [locs, fences, alerts] = await Promise.all([
+          must(sb.from("user_locations").select("*, profiles(display_name), channels(name)")),
+          must(sb.from("geofences").select("*").order("name")),
+          must(sb.from("alerts").select("*").eq("kind", "emergency").in("status", ["open", "acknowledged"])),
+        ]);
+        people.clearLayers(); zones.clearLayers(); sos.clearLayers();
+        const pts = [];
+        locs.forEach(l => {
+          const fresh = Date.now() - new Date(l.updated_at) < 120000;
+          L.circleMarker([l.lat, l.lng], { radius: 9, color: "#fff", weight: 2, fillColor: fresh ? "#2ea043" : "#8b949e", fillOpacity: 1 })
+            .bindPopup(`<b>${esc(l.profiles?.display_name)}</b><br>${esc(l.channels?.name ?? "")}<br>${ago2(l.updated_at)}` +
+              `${l.battery_pct != null ? `<br>Battery ${l.battery_pct}%` : ""}${l.speed_mps ? `<br>${Math.round(l.speed_mps * 3.6)} km/h` : ""}` +
+              `${l.accuracy_m ? `<br>± ${Math.round(l.accuracy_m)} m` : ""}`)
+            .bindTooltip(esc(l.profiles?.display_name ?? ""), { permanent: true, direction: "right", offset: [8, 0] }).addTo(people);
+          pts.push([l.lat, l.lng]);
+        });
+        fences.forEach(f => L.circle([f.lat, f.lng], { radius: f.radius_m, color: f.active ? "#f47b20" : "#8b949e", weight: 2, fillOpacity: 0.08 })
+          .bindTooltip(esc(f.name)).addTo(zones));
+        tags.forEach(t => L.marker([t.lat, t.lng], { icon: L.divIcon({ className: "", html: '<div style="font-size:20px;line-height:20px">📍</div>', iconSize: [20, 20], iconAnchor: [10, 20] }) })
+          .bindTooltip(esc(t.name) + (t.site ? " – " + esc(t.site) : "")).addTo(zones));
+        alerts.filter(a => a.lat != null).forEach(a => {
+          L.circleMarker([a.lat, a.lng], { radius: 16, color: "#f85149", weight: 4, fillColor: "#f85149", fillOpacity: 0.5 })
+            .bindPopup(`<b>🚨 ${esc(a.user_name)}</b><br>${ago2(a.created_at)}<br><a href="${gmaps(a.lat, a.lng)}" target="_blank">Open in Google Maps</a>`).addTo(sos);
+          pts.push([a.lat, a.lng]);
+        });
+        if (!fitted && pts.length) { lmap.fitBounds(pts, { maxZoom: 15, padding: [40, 40] }); fitted = true; }
+        document.getElementById("map-side").innerHTML = `
+          <h2>People on the map (${locs.length})</h2>
+          <table><tr><th>Name</th><th>Channel</th><th>Updated</th><th>Battery</th><th></th></tr>
+          ${locs.map(l => `<tr><td>${esc(l.profiles?.display_name)}</td><td>${esc(l.channels?.name ?? "–")}</td><td>${ago2(l.updated_at)}</td>
+            <td>${l.battery_pct ?? "–"}${l.battery_pct != null ? "%" : ""}</td>
+            <td><button class="btn" data-trail="${l.user_id}">Today's trail</button> <button class="btn" data-goto="${l.lat},${l.lng}">Show</button></td></tr>`).join("")
+            || `<tr><td colspan=5 class="muted">Nobody is sharing a location right now</td></tr>`}</table>
+          <h2 style="margin-top:20px">Geo-fences (${fences.length})</h2>
+          <table><tr><th>Name</th><th>Radius</th><th>Alerts on</th><th>Active</th><th></th></tr>
+          ${fences.map(f => `<tr><td>${esc(f.name)}</td><td>${f.radius_m} m</td><td>${[f.alert_on_enter && "enter", f.alert_on_exit && "exit"].filter(Boolean).join(" + ") || "none"}</td>
+            <td>${f.active ? '<span class="tag on">on</span>' : '<span class="tag">off</span>'}</td>
+            <td><button class="btn" data-fence-toggle="${f.id}" data-active="${f.active}">${f.active ? "Turn off" : "Turn on"}</button>
+                <button class="btn bad" data-fence-del="${f.id}">Delete</button></td></tr>`).join("")
+            || `<tr><td colspan=5 class="muted">No geo-fences yet – click on the map to add one</td></tr>`}</table>`;
+        const side = document.getElementById("map-side");
+        side.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => { const [a, o] = b.dataset.goto.split(",").map(Number); lmap.setView([a, o], 16); });
+        side.querySelectorAll("[data-trail]").forEach(b => b.onclick = async () => {
+          const since = new Date(); since.setHours(0, 0, 0, 0);
+          const pts = await must(sb.from("location_history").select("lat, lng, recorded_at").eq("user_id", b.dataset.trail).gte("recorded_at", since.toISOString()).order("recorded_at"));
+          if (trail) trail.remove();
+          if (!pts.length) return alert("No trail recorded today");
+          trail = L.polyline(pts.map(p => [p.lat, p.lng]), { color: "#58a6ff", weight: 4 }).addTo(lmap); lmap.fitBounds(trail.getBounds(), { padding: [40, 40] });
+        });
+        side.querySelectorAll("[data-fence-del]").forEach(b => b.onclick = async () => { if (confirm("Delete this geo-fence?")) { await must(sb.from("geofences").delete().eq("id", b.dataset.fenceDel)); draw(); } });
+        side.querySelectorAll("[data-fence-toggle]").forEach(b => b.onclick = async () => { await must(sb.from("geofences").update({ active: b.dataset.active !== "true" }).eq("id", b.dataset.fenceToggle)); draw(); });
+      }
+      await draw();
+      mapTimer = setInterval(() => { if (tab === "map") draw(); }, 15000);
+    };
+    return { html, after };
+  },
+  async checkpoints() {
+    await sb.rpc("check_missed_checkpoints");
+    const tags = await must(sb.rpc("checkpoint_status"));
+    const scans = await must(sb.from("tag_scans").select("*").order("scanned_at", { ascending: false }).limit(300));
+    const st = t => !t.active ? '<span class="tag">off</span>' : t.expected_every_minutes == null ? '<span class="tag">no schedule</span>'
+      : t.overdue ? '<span class="tag bad">OVERDUE</span>' : '<span class="tag on">OK</span>';
+    const today = new Date().toISOString().slice(0, 10);
+    return `<h2>NFC checkpoints (${tags.length})</h2>
+      <p class="muted">Register a tag by scanning it with the app while signed in as admin, or type its ID below.
+      If a checkpoint has a schedule and isn't scanned in time (+ grace), a "Missed checkpoint" alert is raised.</p>
+      <table><tr><th>Checkpoint</th><th>Site</th><th>Tag ID</th><th>Scan every</th><th>Last scan</th><th>By</th><th>Status</th><th></th></tr>
+      ${tags.map(t => `<tr><td><b>${esc(t.name)}</b></td><td>${esc(t.site ?? "")}</td><td class="muted small">${esc(t.tag_uid)}</td>
+        <td><input id="every-${t.id}" class="money" type="number" min="5" value="${t.expected_every_minutes ?? ""}" placeholder="–"> min</td>
+        <td>${t.last_scan ? ago2(t.last_scan) : "never"}</td><td>${esc(t.last_by ?? "–")}</td><td>${st(t)}</td>
+        <td><button class="btn" data-act="tagEvery" data-id="${t.id}">Save</button>
+            <button class="btn" data-act="tagToggle" data-id="${t.id}" data-active="${t.active}">${t.active ? "Turn off" : "Turn on"}</button>
+            <button class="btn bad" data-act="tagDelete" data-id="${t.id}" data-name="${esc(t.name)}">Delete</button></td></tr>`).join("")
+        || `<tr><td colspan=8 class="muted">No checkpoints yet</td></tr>`}</table>
+      <h2 style="margin-top:22px">Register a tag by ID</h2>
+      <div class="row"><input id="tg-uid" placeholder="Tag ID, e.g. 04A23BC4D580"><input id="tg-name" placeholder="Name"><input id="tg-site" placeholder="Site (optional)">
+        <input id="tg-every" class="money" type="number" min="5" placeholder="every … min"><button class="btn ok" data-act="tagAdd">Add</button></div>
+      <h2 style="margin-top:22px">Scan history</h2>
+      <div class="row">From <input id="sc-from" type="date" value="${today}"> to <input id="sc-to" type="date" value="${today}">
+        <button class="btn ok" data-act="scanCsv">Export CSV</button></div>
+      <table><tr><th>Time</th><th>Checkpoint</th><th>Guard</th><th>Location</th></tr>
+      ${scans.map(x => `<tr><td>${new Date(x.scanned_at).toLocaleString()}</td>
+        <td>${x.known ? esc(x.tag_name) : `<span class="tag warn">unregistered</span> <span class="muted small">${esc(x.tag_uid)}</span>`}</td>
+        <td>${esc(x.user_name ?? "–")}</td>
+        <td>${x.lat != null ? `<a href="${gmaps(x.lat, x.lng)}" target="_blank" rel="noopener" style="color:#58a6ff">map</a>` : "–"}</td></tr>`).join("")
+        || `<tr><td colspan=4 class="muted">No scans yet</td></tr>`}</table>`;
+  },
+  async messages() {
+    const chans = await must(sb.from("channels").select("id, name, kind").order("name"));
+    const html = `<h2>Message history</h2>
+      <div class="row"><select id="msg-ch">${chans.map(c => `<option value="${c.id}">${esc(c.name)} (${c.kind})</option>`).join("")}</select>
+      <button class="btn" id="msg-load">Show</button><button class="btn ok" id="msg-csv">Export CSV</button></div>
+      <p class="muted">All channel messages are archived. Automatic clean-up: Settings → <code>message_retention_days</code> (0 = keep forever).</p>
+      <div id="msg-list"></div>`;
+    const after = async () => {
+      let oldest = null;
+      const list = document.getElementById("msg-list"), sel = document.getElementById("msg-ch");
+      const row = m => `<tr><td class="small">${new Date(m.created_at).toLocaleString()}</td><td>${esc(m.sender_name)}</td>
+        <td>${m.kind === "emergency" ? '<span class="tag bad">SOS</span> ' : m.kind === "system" ? '<span class="tag">system</span> ' : ""}${esc(m.body)}</td></tr>`;
+      async function load(more) {
+        if (!sel.value) return (list.innerHTML = `<p class="muted">No channels</p>`);
+        const rows = await must(sb.rpc("messages_before", { p_channel_id: sel.value, p_before_id: more && oldest ? oldest : 9007199254740991, p_limit: 100 }));
+        if (!more) list.innerHTML = `<table id="msg-t"><tr><th>Time</th><th>From</th><th>Message</th></tr></table>`;
+        const t = document.getElementById("msg-t");
+        const header = t.querySelector("tr");
+        header.insertAdjacentHTML("afterend", rows.map(row).join(""));
+        if (rows.length) oldest = rows[0].id;
+        document.getElementById("msg-more")?.remove();
+        if (rows.length === 100) list.insertAdjacentHTML("beforeend", `<p><button class="btn" id="msg-more">Load older</button></p>`), document.getElementById("msg-more").onclick = () => load(true);
+        if (!rows.length && !more) t.insertAdjacentHTML("beforeend", `<tr><td colspan=3 class="muted">No messages in this channel</td></tr>`);
+      }
+      document.getElementById("msg-load").onclick = () => { oldest = null; load(false); };
+      sel.onchange = () => { oldest = null; load(false); };
+      document.getElementById("msg-csv").onclick = async () => {
+        let after = 0, all = [];
+        for (;;) {
+          const rows = await must(sb.rpc("messages_since", { p_channel_id: sel.value, p_after_id: after, p_limit: 500 }));
+          all = all.concat(rows); if (rows.length < 500) break; after = rows[rows.length - 1].id;
+        }
+        const name = sel.options[sel.selectedIndex].text.replace(/[^\w-]+/g, "_");
+        csvDownload(`messages_${name}_${new Date().toISOString().slice(0, 10)}.csv`,
+          [["time", "from", "type", "message"], ...all.map(m => [new Date(m.created_at).toISOString(), m.sender_name, m.kind, m.body])]);
+      };
+      await load(false);
+    };
+    return { html, after };
   },
   async users() {
     const rows = await must(sb.from("profiles").select("id, display_name, phone, role, disabled, last_seen_at, created_at").order("created_at", { ascending: false }).limit(500));
@@ -240,6 +460,27 @@ const actions = {
     await api("/api/channel", { action: "delete", channelId: d.id }); render();
   },
   archive: async d => { await must(sb.from("channels").update({ archived: d.arch !== "true" }).eq("id", d.id)); render(); },
+  tagEvery: async d => {
+    const v = document.getElementById("every-" + d.id).value.trim();
+    await must(sb.from("nfc_tags").update({ expected_every_minutes: v === "" ? null : Math.max(5, parseInt(v, 10)) }).eq("id", d.id)); render();
+  },
+  tagToggle: async d => { await must(sb.from("nfc_tags").update({ active: d.active !== "true" }).eq("id", d.id)); render(); },
+  tagDelete: async d => { if (confirm(`Delete checkpoint "${d.name}"? Its scan history is kept.`)) { await must(sb.from("nfc_tags").delete().eq("id", d.id)); render(); } },
+  tagAdd: async () => {
+    const g = id => document.getElementById(id).value.trim();
+    if (!g("tg-uid") || !g("tg-name")) return alert("Tag ID and name are required");
+    await must(sb.rpc("register_tag", { p_tag_uid: g("tg-uid"), p_name: g("tg-name"), p_site: g("tg-site") || null,
+      p_expected_every_minutes: g("tg-every") ? parseInt(g("tg-every"), 10) : null })); render();
+  },
+  scanCsv: async () => {
+    const from = document.getElementById("sc-from").value, to = document.getElementById("sc-to").value;
+    if (!from || !to) return alert("Choose both dates");
+    const rows = await must(sb.from("tag_scans").select("*").gte("scanned_at", new Date(from + "T00:00:00").toISOString())
+      .lte("scanned_at", new Date(to + "T23:59:59").toISOString()).order("scanned_at").limit(20000));
+    csvDownload(`checkpoint_scans_${from}_to_${to}.csv`, [["time", "checkpoint", "tag_id", "guard", "lat", "lng", "registered"],
+      ...rows.map(x => [new Date(x.scanned_at).toISOString(), x.tag_name ?? "", x.tag_uid, x.user_name ?? "", x.lat ?? "", x.lng ?? "", x.known ? "yes" : "no"])]);
+  },
+  alertSet: async d => { await must(sb.rpc("update_alert", { p_alert_id: Number(d.id), p_status: d.st })); stopAlarm(); checkAlerts(); render(); },
   savePlan: async d => {
     const c = d.code, v = id => document.getElementById(id + c).value.trim();
     const cents = x => x === "" ? null : Math.round(parseFloat(x) * 100);

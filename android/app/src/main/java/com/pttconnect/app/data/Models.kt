@@ -128,6 +128,66 @@ data class MySubscription(
     }
 }
 
+data class ChatMessage(
+    val id: Long,                 // 0 while still waiting in the outbox
+    val channelId: String,
+    val senderId: String?,
+    val senderName: String,
+    val kind: String,             // text | system | emergency
+    val body: String,
+    val createdAt: String,
+    val clientId: String?,
+    val pending: Boolean = false,
+) {
+    companion object {
+        fun from(o: JSONObject) = ChatMessage(
+            id = o.getLong("id"), channelId = o.getString("channel_id"),
+            senderId = o.optString("sender_id").takeIf { it.isNotBlank() && it != "null" },
+            senderName = o.optString("sender_name", "?"), kind = o.optString("kind", "text"),
+            body = o.optString("body"), createdAt = o.optString("created_at"),
+            clientId = o.optString("client_id").takeIf { it.isNotBlank() && it != "null" },
+        )
+    }
+}
+
+data class Alert(
+    val id: Long,
+    val kind: String,
+    val status: String,
+    val userId: String?,
+    val userName: String?,
+    val channelId: String?,
+    val lat: Double?,
+    val lng: Double?,
+    val message: String?,
+    val createdAt: String,
+) {
+    companion object {
+        fun from(o: JSONObject) = Alert(
+            id = o.getLong("id"), kind = o.optString("kind"), status = o.optString("status"),
+            userId = o.optString("user_id").takeIf { it.isNotBlank() && it != "null" },
+            userName = o.optString("user_name").takeIf { it.isNotBlank() && it != "null" },
+            channelId = o.optString("channel_id").takeIf { it.isNotBlank() && it != "null" },
+            lat = if (o.isNull("lat")) null else o.optDouble("lat"),
+            lng = if (o.isNull("lng")) null else o.optDouble("lng"),
+            message = o.optString("message").takeIf { it.isNotBlank() && it != "null" },
+            createdAt = o.optString("created_at"),
+        )
+    }
+}
+
+/** "14:05" for today, otherwise "22 Nov 14:05". */
+fun shortTime(iso: String): String = runCatching {
+    val t = java.time.OffsetDateTime.parse(iso).atZoneSameInstant(java.time.ZoneId.systemDefault())
+    val today = java.time.LocalDate.now()
+    t.format(java.time.format.DateTimeFormatter.ofPattern(if (t.toLocalDate() == today) "HH:mm" else "d MMM HH:mm"))
+}.getOrDefault("")
+
+/** Minutes since an ISO time, for "2 min ago". */
+fun minutesAgo(iso: String): Long = runCatching {
+    java.time.Duration.between(java.time.OffsetDateTime.parse(iso).toInstant(), java.time.Instant.now()).toMinutes()
+}.getOrDefault(0)
+
 fun formatRand(cents: Int): String = if (cents % 100 == 0) "R${cents / 100}" else "R%.2f".format(cents / 100.0)
 
 class BackendException(val code: String, message: String = code, val httpStatus: Int = 0) : Exception(message)

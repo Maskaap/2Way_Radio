@@ -197,6 +197,47 @@ class Backend(private val settings: Settings) {
         return o.getString("url") to o.getString("token")
     }
 
+    // ------------------------------------------------------------------ messaging
+    suspend fun sendMessage(channelId: String, body: String, clientId: String): ChatMessage =
+        ChatMessage.from(JSONObject(rpc("send_message", JSONObject().put("p_channel_id", channelId).put("p_body", body).put("p_client_id", clientId))))
+
+    suspend fun messagesSince(channelId: String, afterId: Long): List<ChatMessage> =
+        JSONArray(rpc("messages_since", JSONObject().put("p_channel_id", channelId).put("p_after_id", afterId).put("p_limit", 300)))
+            .let { a -> List(a.length()) { ChatMessage.from(a.getJSONObject(it)) } }
+
+    suspend fun messagesBefore(channelId: String, beforeId: Long, limit: Int = 50): List<ChatMessage> =
+        JSONArray(rpc("messages_before", JSONObject().put("p_channel_id", channelId).put("p_before_id", beforeId).put("p_limit", limit)))
+            .let { a -> List(a.length()) { ChatMessage.from(a.getJSONObject(it)) } }
+
+    // ------------------------------------------------------------------ location
+    /** Returns the names of geofences just entered/left (for a local notice). */
+    suspend fun reportLocation(lat: Double, lng: Double, accuracy: Float?, speed: Float?, heading: Float?, battery: Int?) {
+        rpc("report_location", JSONObject().put("p_lat", lat).put("p_lng", lng)
+            .put("p_accuracy", accuracy ?: JSONObject.NULL).put("p_speed", speed ?: JSONObject.NULL)
+            .put("p_heading", heading ?: JSONObject.NULL).put("p_battery", battery ?: JSONObject.NULL))
+    }
+
+    suspend fun stopLocationSharing() { rpc("stop_location_sharing") }
+
+    // ------------------------------------------------------------------ emergency
+    suspend fun raiseEmergency(channelId: String?, lat: Double?, lng: Double?): Alert =
+        Alert.from(JSONObject(rpc("raise_emergency", JSONObject().put("p_channel_id", channelId ?: JSONObject.NULL)
+            .put("p_lat", lat ?: JSONObject.NULL).put("p_lng", lng ?: JSONObject.NULL))))
+
+    suspend fun updateAlert(id: Long, status: String) { rpc("update_alert", JSONObject().put("p_alert_id", id).put("p_status", status)) }
+
+    suspend fun openEmergencies(channelId: String?): List<Alert> =
+        JSONArray(rpc("open_emergencies", JSONObject().put("p_channel_id", channelId ?: JSONObject.NULL)))
+            .let { a -> List(a.length()) { Alert.from(a.getJSONObject(it)) } }
+
+    // ------------------------------------------------------------------ NFC checkpoints
+    suspend fun recordTagScan(uid: String, lat: Double?, lng: Double?): JSONObject =
+        JSONObject(rpc("record_tag_scan", JSONObject().put("p_tag_uid", uid).put("p_lat", lat ?: JSONObject.NULL).put("p_lng", lng ?: JSONObject.NULL)))
+
+    suspend fun registerTag(uid: String, name: String, site: String?, lat: Double?, lng: Double?, everyMinutes: Int?): JSONObject =
+        JSONObject(rpc("register_tag", JSONObject().put("p_tag_uid", uid).put("p_name", name).put("p_site", site ?: JSONObject.NULL)
+            .put("p_lat", lat ?: JSONObject.NULL).put("p_lng", lng ?: JSONObject.NULL).put("p_expected_every_minutes", everyMinutes ?: JSONObject.NULL)))
+
     // ------------------------------------------------------------------ billing
     suspend fun plans(): List<Plan> {
         ensureConfig()
@@ -260,6 +301,10 @@ fun friendlyError(e: Throwable): String = when ((e as? BackendException)?.code ?
     "session_expired" -> "Please sign in again"
     "email_not_confirmed" -> "Confirm your e-mail first (check your inbox)"
     "user_already_exists" -> "An account with this e-mail already exists"
+    "empty_message" -> "Type a message first"
+    "invalid_tag" -> "This tag could not be read – hold the phone still on the tag"
+    "admin_only" -> "Only an administrator can do that"
+    "invalid_location" -> "Location not available yet"
     "not_allowed" -> "You don't have permission to do that"
     "cannot_remove_owner" -> "The owner can't be removed – the owner can delete the channel instead"
     "channel_not_found" -> "This channel no longer exists"

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Group
@@ -86,6 +87,9 @@ import kotlinx.coroutines.launch
 fun PttScreen(
     engine: PttEngine,
     backend: Backend,
+    chat: com.pttconnect.app.data.ChatRepository,
+    emergency: com.pttconnect.app.ptt.EmergencyManager,
+    onChat: () -> Unit,
     onChannels: () -> Unit,
     onSettings: () -> Unit,
     onEnterChannel: (Channel) -> Unit,
@@ -94,6 +98,10 @@ fun PttScreen(
     val ctx = LocalContext.current
     val view = LocalView.current
     var showMembers by remember { mutableStateOf(false) }
+    val unread by chat.unread.collectAsState()
+    val alerts by emergency.alerts.collectAsState()
+    val sosSending by emergency.sending.collectAsState()
+    val sosMsg by emergency.message.collectAsState()
 
     LaunchedEffect(Unit) {
         engine.effects.collect { if (it == "granted") view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
@@ -120,6 +128,11 @@ fun PttScreen(
             }
             IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings", tint = Pal.muted) }
         }
+
+        // ---- emergency banner(s)
+        alerts.forEach { a -> EmergencyBanner(a, mine = emergency.isMine(a), onSilence = { emergency.silence(a) },
+            onCancel = { emergency.cancelMine(a) }) }
+        sosMsg?.let { Text(it, color = Pal.amber, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp)) }
 
         // ---- channel switcher
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -180,7 +193,17 @@ fun PttScreen(
             onDown = { engine.pttDown(PttSource.SCREEN) }, onUp = { engine.pttUp(PttSource.SCREEN) })
         Spacer(Modifier.weight(1f))
         s.message?.takeIf { s.conn == ConnState.CONNECTED }?.let { Text(it, color = Pal.amber, fontSize = 13.sp) }
-        Text("Volume Down = talk", color = Pal.muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+        Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            SosButton(sending = sosSending, onTrigger = { emergency.raise() })
+            Text("Volume Down = talk", color = Pal.muted, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+            Box {
+                IconButton(onClick = onChat, enabled = s.channel != null, modifier = Modifier.size(64.dp).clip(CircleShape).background(Pal.panel)) {
+                    Icon(Icons.Filled.Chat, "Messages", tint = Pal.text, modifier = Modifier.size(30.dp))
+                }
+                if (unread > 0) Text(if (unread > 99) "99+" else "$unread", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.TopEnd).clip(CircleShape).background(Pal.red).padding(horizontal = 6.dp, vertical = 2.dp))
+            }
+        }
     }
 
     if (showMembers && s.channel != null) MembersSheet(s.channel!!, backend, onDismiss = { showMembers = false }, onDirectCall = { ch ->
@@ -237,6 +260,48 @@ private fun PttButton(tx: TxState, receiving: Boolean, enabled: Boolean, onDown:
             when (tx) { TxState.TRANSMITTING -> "TALKING"; TxState.REQUESTING -> "…"; TxState.BUSY -> "BUSY"; TxState.DENIED -> "LISTEN ONLY"; else -> if (receiving) "RECEIVING" else "HOLD TO TALK" },
             color = halo, fontWeight = FontWeight.Bold, fontSize = 16.sp,
         )
+    }
+}
+
+/** Hold for 2 seconds to send an emergency (prevents accidental alarms). */
+@Composable
+private fun SosButton(sending: Boolean, onTrigger: () -> Unit) {
+    var holding by remember { mutableStateOf(false) }
+    val progress by animateFloatAsState(if (holding) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(if (holding) 2000 else 150), label = "sos",
+        finishedListener = { v -> if (v >= 1f && holding) { holding = false; onTrigger() } })
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(64.dp)
+        .pointerInput(sending) {
+            if (sending) return@pointerInput
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false); holding = true
+                try { waitForUpOrCancellation() } finally { holding = false }
+            }
+        }) {
+        Box(Modifier.size(64.dp).clip(CircleShape).background(Pal.red.copy(alpha = if (holding) 1f else 0.85f)))
+        androidx.compose.material3.CircularProgressIndicator(progress = { if (sending) 1f else progress },
+            modifier = Modifier.size(64.dp), color = Color.White, strokeWidth = 4.dp, trackColor = Color.Transparent)
+        Text(if (sending) "…" else "SOS", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+    }
+}
+
+@Composable
+private fun EmergencyBanner(a: com.pttconnect.app.data.Alert, mine: Boolean, onSilence: () -> Unit, onCancel: () -> Unit) {
+    val ctx = LocalContext.current
+    val ago = com.pttconnect.app.data.minutesAgo(a.createdAt)
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(12.dp)).background(Pal.red).padding(12.dp)) {
+        Text(if (mine) "🚨 YOUR EMERGENCY IS ACTIVE" else "🚨 EMERGENCY – ${a.userName ?: "Someone"}",
+            color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+        Text("${if (ago < 1) "just now" else "$ago min ago"} · ${if (a.status == "acknowledged") "help is aware" else "waiting for response"}",
+            color = Color.White, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+            if (a.lat != null && a.lng != null) TextButton(onClick = {
+                val uri = android.net.Uri.parse("geo:${a.lat},${a.lng}?q=${a.lat},${a.lng}(${android.net.Uri.encode(a.userName ?: "Emergency")})")
+                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+            }) { Text("Show on map", color = Color.White, fontWeight = FontWeight.Bold) }
+            if (mine) TextButton(onClick = onCancel) { Text("Cancel (false alarm)", color = Color.White, fontWeight = FontWeight.Bold) }
+            else TextButton(onClick = onSilence) { Text("Silence alarm", color = Color.White, fontWeight = FontWeight.Bold) }
+        }
     }
 }
 
