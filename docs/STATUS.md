@@ -39,6 +39,15 @@ Rule used here: something is ✅ only if it was **actually run and checked**. "W
 | Admin Plans / Subscriptions / Settings tabs | 📝 Written | Syntax-checked; not yet clicked through in a browser |
 | Android Subscription screen | 📝 Written | Part of the next APK build |
 
+## Channel management & branded PTT button (added)
+
+| Feature | State | Evidence / what's left |
+|---|---|---|
+| Delete channel / group / private call (owner or admin) | ✅ Tested (DB) | `supabase/tests/30_channel_management_test.sql` |
+| Remove members; leave a channel; owners protected | ✅ Tested (DB) | |
+| People disconnected from live audio on delete/remove | 📝 Written | Uses LiveKit `deleteRoom` / `removeParticipant`; needs the 2-phone test |
+| Logo PTT button: ring static, only the H moves | 📝 Written | Layers checked: idle image matches original logo |
+
 ## Phase 2: not started (by design)
 
 - Bluetooth PTT buttons and speaker-mics. These are usually media-button (`KEYCODE_HEADSETHOOK` / `MEDIA_PLAY_PAUSE`) or vendor BLE protocols, handled per device.

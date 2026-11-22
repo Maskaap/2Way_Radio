@@ -113,6 +113,15 @@ class PttEngine(
         enterChannel(list[((if (idx < 0) 0 else idx + step) % list.size + list.size) % list.size])
     }
 
+    /** Call after a channel was deleted or you left it: disconnects if it's the current one. */
+    fun channelGone(channelId: String) {
+        channels = channels.filter { it.id != channelId }
+        if (_state.value.channel?.id == channelId) {
+            leaveChannel()
+            if (settings.lastChannelId == channelId) settings.lastChannelId = null
+        }
+    }
+
     fun leaveChannel() {
         connectJob?.cancel(); heartbeatJob?.cancel()
         val ch = _state.value.channel
@@ -142,7 +151,7 @@ class PttEngine(
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "connect failed", e)
-                val fatal = (e as? BackendException)?.code in setOf("device_blocked", "account_disabled", "not_a_member", "session_expired", "not_signed_in", "subscription_required", "plan_limit_members")
+                val fatal = (e as? BackendException)?.code in setOf("device_blocked", "account_disabled", "not_a_member", "session_expired", "not_signed_in", "subscription_required", "plan_limit_members", "channel_not_found")
                 _state.update { it.copy(conn = ConnState.ERROR, message = friendlyError(e)) }
                 if (fatal) return
                 delay(backoff)

@@ -58,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import com.pttconnect.app.R
 import androidx.compose.ui.graphics.Color
@@ -111,6 +112,9 @@ fun PttScreen(
             Spacer(Modifier.width(8.dp))
             ConnChip(s.conn)
             Spacer(Modifier.weight(1f))
+            if (s.channel != null) IconButton(onClick = { showMembers = true }) {
+                Icon(Icons.Filled.Group, "Members", tint = Pal.muted)
+            }
             IconButton(onClick = { ctx.startActivity(Intent(AndroidSettings.ACTION_BLUETOOTH_SETTINGS)) }) {
                 Icon(Icons.Filled.Bluetooth, "Bluetooth", tint = Pal.muted)
             }
@@ -181,41 +185,58 @@ fun PttScreen(
 
     if (showMembers && s.channel != null) MembersSheet(s.channel!!, backend, onDismiss = { showMembers = false }, onDirectCall = { ch ->
         showMembers = false; onEnterChannel(ch)
-    }, engine = engine)
+    }, engine = engine, onGone = { id -> showMembers = false; engine.channelGone(id); onChannels() })
 }
 
+/**
+ * The PTT button is the Infinity H emblem (the H with its ribbon). It sinks in while you press / transmit.
+ * A coloured halo around the badge shows the state: green ready, amber waiting/busy, red talking, blue receiving.
+ */
 @Composable
 private fun PttButton(tx: TxState, receiving: Boolean, enabled: Boolean, onDown: () -> Unit, onUp: () -> Unit) {
-    val color by animateColorAsState(
+    var fingerDown by remember { mutableStateOf(false) }
+    val pressed = fingerDown || tx == TxState.REQUESTING || tx == TxState.TRANSMITTING
+    val halo by animateColorAsState(
         when {
             !enabled -> Pal.line
             tx == TxState.TRANSMITTING -> Pal.red
-            tx == TxState.REQUESTING -> Pal.amber
-            tx == TxState.BUSY || tx == TxState.DENIED -> Color(0xFF5A4A2A)
-            receiving -> Pal.blue.copy(alpha = 0.55f)
+            tx == TxState.REQUESTING || tx == TxState.BUSY || tx == TxState.DENIED -> Pal.amber
+            receiving -> Pal.blue
             else -> Pal.green
-        }, label = "ptt",
+        }, label = "halo",
     )
-    val scale by animateFloatAsState(if (tx == TxState.TRANSMITTING) 1.06f else 1f, label = "scale")
-    Box(
-        Modifier.size(250.dp).scale(scale).clip(CircleShape).background(color.copy(alpha = 0.18f))
-            .border(6.dp, color, CircleShape)
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    onDown()
-                    try { waitForUpOrCancellation() } finally { onUp() }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Filled.Mic, null, tint = color, modifier = Modifier.size(72.dp))
-            Text(
-                when (tx) { TxState.TRANSMITTING -> "TALKING"; TxState.REQUESTING -> "…"; TxState.BUSY -> "BUSY"; TxState.DENIED -> "LISTEN ONLY"; else -> "PUSH TO TALK" },
-                color = Pal.text, fontWeight = FontWeight.Bold, fontSize = 18.sp,
-            )
+    val hScale by animateFloatAsState(if (pressed) 0.88f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 900f), label = "hScale")
+    val hDrop by animateFloatAsState(if (pressed) 1f else 0f, label = "hDrop")
+    val density = androidx.compose.ui.platform.LocalDensity.current
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(272.dp).clip(CircleShape).background(halo.copy(alpha = if (pressed) 0.30f else 0.16f))
+                .border(5.dp, halo, CircleShape)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        fingerDown = true
+                        onDown()
+                        try { waitForUpOrCancellation() } finally { fingerDown = false; onUp() }
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            // The H emblem – sinks in while you press / transmit
+            Image(painterResource(R.drawable.ptt_h), contentDescription = "Push to talk",
+                modifier = Modifier.size(250.dp).graphicsLayer {
+                    scaleX = hScale; scaleY = hScale
+                    translationY = with(density) { (6.dp * hDrop).toPx() }
+                    alpha = if (enabled) 1f else 0.45f
+                })
         }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            when (tx) { TxState.TRANSMITTING -> "TALKING"; TxState.REQUESTING -> "…"; TxState.BUSY -> "BUSY"; TxState.DENIED -> "LISTEN ONLY"; else -> if (receiving) "RECEIVING" else "HOLD TO TALK" },
+            color = halo, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+        )
     }
 }
 
@@ -252,11 +273,13 @@ private fun Indicator(icon: androidx.compose.ui.graphics.vector.ImageVector, tex
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MembersSheet(channel: Channel, backend: Backend, engine: PttEngine, onDismiss: () -> Unit, onDirectCall: (Channel) -> Unit) {
+private fun MembersSheet(channel: Channel, backend: Backend, engine: PttEngine, onDismiss: () -> Unit, onDirectCall: (Channel) -> Unit, onGone: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var roster by remember { mutableStateOf<List<RosterEntry>>(emptyList()) }
     var err by remember { mutableStateOf<String?>(null) }
     var showAdd by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf<RosterEntry?>(null) }
+    var confirmGone by remember { mutableStateOf(false) }
     fun load() = scope.launch { try { roster = backend.roster(channel.id) } catch (e: Exception) { err = friendlyError(e) } }
     LaunchedEffect(channel.id) { load() }
 
@@ -283,12 +306,45 @@ private fun MembersSheet(channel: Channel, backend: Backend, engine: PttEngine, 
                             } catch (e: Exception) { err = friendlyError(e) }
                         }
                     }) { Text("Call") }
-                    if (channel.canManage && m.role != "owner") TextButton(onClick = {
-                        scope.launch { try { backend.removeMember(channel.id, m.userId); load() } catch (e: Exception) { err = friendlyError(e) } }
-                    }) { Text("Remove", color = Pal.red) }
+                    if (channel.canManage && m.role != "owner") TextButton(onClick = { confirmRemove = m }) { Text("Remove", color = Pal.red) }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            val owner = channel.myRole == "owner"
+            val what = if (channel.kind == "direct") "private call" else if (channel.kind == "private") "group" else "channel"
+            TextButton(onClick = { confirmGone = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (owner) "Delete this $what" else "Leave this $what", color = Pal.red, fontWeight = FontWeight.SemiBold)
+            }
         }
+    }
+    confirmRemove?.let { m ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text("Remove ${m.name}?") },
+            text = { Text("${m.name} is removed from \"${channel.name}\" and disconnected right away.") },
+            confirmButton = { TextButton(onClick = {
+                confirmRemove = null
+                scope.launch { try { backend.removeMember(channel.id, m.userId); load() } catch (e: Exception) { err = friendlyError(e) } }
+            }) { Text("Remove", color = Pal.red) } },
+            dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text("Cancel") } },
+        )
+    }
+    if (confirmGone) {
+        val owner = channel.myRole == "owner"
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmGone = false },
+            title = { Text(if (owner) "Delete \"${channel.name}\"?" else "Leave \"${channel.name}\"?") },
+            text = { Text(if (owner) "It is deleted for everyone and all members are disconnected. This can't be undone."
+                          else "You will be removed from this channel.") },
+            confirmButton = { TextButton(onClick = {
+                confirmGone = false
+                scope.launch {
+                    try { if (owner) backend.deleteChannel(channel.id) else backend.leaveChannel(channel.id); onGone(channel.id) }
+                    catch (e: Exception) { err = friendlyError(e) }
+                }
+            }) { Text(if (owner) "Delete" else "Leave", color = Pal.red) } },
+            dismissButton = { TextButton(onClick = { confirmGone = false }) { Text("Cancel") } },
+        )
     }
     if (showAdd) UserPickerDialog(backend, "Add member", "Add", onDismiss = { showAdd = false }) { u ->
         scope.launch { try { backend.addMember(channel.id, u.userId); showAdd = false; load() } catch (e: Exception) { err = friendlyError(e) } }

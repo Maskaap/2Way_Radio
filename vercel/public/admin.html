@@ -50,6 +50,15 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&l
 const ago = t => { if (!t) return "never"; const s = Math.round((Date.now() - new Date(t)) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s/60)}m ago` : new Date(t).toLocaleString(); };
 let tab = "active", floorSub = null;
 
+// Calls our Vercel API as the signed-in admin (used where live audio must also be cut).
+async function api(path, body) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + session.access_token }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(j.message || j.error || "Request failed"); throw new Error(j.error); }
+  return j;
+}
+
 async function must(p) { const { data, error } = await p; if (error) { alert(error.message); throw error; } return data; }
 
 function loginView(msg = "") {
@@ -131,7 +140,8 @@ const views = {
       const talking = f?.holder_name && new Date(f.lease_until) > new Date();
       return `<table style="margin-bottom:16px"><tr><th colspan=4>${esc(c.name)} <span class="tag">${c.kind}</span> <span class="muted">max ${c.max_talk_seconds}s</span>
         ${talking ? `<span class="tag on">● ${esc(f.holder_name)} talking</span>` : ""} ${c.archived ? `<span class="tag bad">archived</span>` : ""}
-        <button class="btn" style="float:right" data-act="archive" data-id="${c.id}" data-arch="${c.archived}">${c.archived ? "Restore" : "Archive"}</button></th></tr>
+        <span style="float:right"><button class="btn" data-act="archive" data-id="${c.id}" data-arch="${c.archived}">${c.archived ? "Restore" : "Archive"}</button>
+        <button class="btn bad" data-act="deleteChannel" data-id="${c.id}" data-name="${esc(c.name)}">Delete</button></span></th></tr>
         ${c.channel_members.map(m => `<tr><td>${esc(m.profiles?.display_name)}</td><td><span class="tag">${m.role}</span></td>
           <td>${m.can_talk ? `<span class="tag on">can talk</span>` : `<span class="tag warn">listen only</span>`}</td>
           <td><button class="btn" data-act="talk" data-ch="${c.id}" data-id="${m.user_id}" data-can="${m.can_talk}">${m.can_talk ? "Make listen-only" : "Allow talk"}</button>
@@ -224,7 +234,11 @@ const actions = {
     await must(sb.rpc("admin_set_device_blocked", { p_device_id: d.id, p_blocked: blocking, p_reason: reason })); render();
   },
   talk: async d => { await must(sb.rpc("admin_set_can_talk", { p_channel_id: d.ch, p_user_id: d.id, p_can_talk: d.can !== "true" })); render(); },
-  kick: async d => { if (confirm("Remove this member from the channel?")) { await must(sb.rpc("remove_member", { p_channel_id: d.ch, p_user_id: d.id })); render(); } },
+  kick: async d => { if (confirm("Remove this member from the channel? They are disconnected immediately.")) { await api("/api/channel", { action: "remove_member", channelId: d.ch, userId: d.id }); render(); } },
+  deleteChannel: async d => {
+    if (!confirm(`Delete "${d.name}" permanently?\n\nAll members are removed and anyone talking is disconnected. This cannot be undone.`)) return;
+    await api("/api/channel", { action: "delete", channelId: d.id }); render();
+  },
   archive: async d => { await must(sb.from("channels").update({ archived: d.arch !== "true" }).eq("id", d.id)); render(); },
   savePlan: async d => {
     const c = d.code, v = id => document.getElementById(id + c).value.trim();

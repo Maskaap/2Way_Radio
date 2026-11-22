@@ -162,7 +162,17 @@ class Backend(private val settings: Settings) {
         }
 
     suspend fun addMember(channelId: String, userId: String) { rpc("add_member", JSONObject().put("p_channel_id", channelId).put("p_user_id", userId)) }
-    suspend fun removeMember(channelId: String, userId: String) { rpc("remove_member", JSONObject().put("p_channel_id", channelId).put("p_user_id", userId)) }
+    /** Removes a member (or yourself = leave). Goes via the server so the person is cut from live audio at once. */
+    suspend fun removeMember(channelId: String, userId: String) {
+        apiPost("/api/channel", JSONObject().put("action", "remove_member").put("channelId", channelId).put("userId", userId))
+    }
+
+    suspend fun leaveChannel(channelId: String) = removeMember(channelId, session.value?.userId ?: throw BackendException("not_signed_in"))
+
+    /** Deletes a channel / group / private call (owner or admin). Everyone in it is disconnected. */
+    suspend fun deleteChannel(channelId: String) {
+        apiPost("/api/channel", JSONObject().put("action", "delete").put("channelId", channelId))
+    }
     suspend fun openDirectCall(userId: String): String = rpc("open_direct_call", JSONObject().put("p_other_user", userId)).trim('"')
 
     suspend fun requestFloor(channelId: String): FloorResult {
@@ -250,6 +260,9 @@ fun friendlyError(e: Throwable): String = when ((e as? BackendException)?.code ?
     "session_expired" -> "Please sign in again"
     "email_not_confirmed" -> "Confirm your e-mail first (check your inbox)"
     "user_already_exists" -> "An account with this e-mail already exists"
+    "not_allowed" -> "You don't have permission to do that"
+    "cannot_remove_owner" -> "The owner can't be removed – the owner can delete the channel instead"
+    "channel_not_found" -> "This channel no longer exists"
     "over_email_send_rate_limit", "over_request_rate_limit" -> "Too many requests – please wait a few minutes and try again"
     "weak_password" -> "Password is too weak – use at least 8 characters with letters and numbers"
     "same_password" -> "The new password must be different from the old one"

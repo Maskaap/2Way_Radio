@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -71,6 +73,7 @@ fun ChannelsScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showCreate by remember { mutableStateOf(false) }
     var showCall by remember { mutableStateOf(false) }
+    var manage by remember { mutableStateOf<Channel?>(null) }
 
     fun reload() = scope.launch {
         error = null
@@ -110,9 +113,33 @@ fun ChannelsScreen(
             list == null && error == null -> Text("Loading…", color = Pal.muted)
             list != null && list.isEmpty() -> Text("No channels yet. Create the first one.", color = Pal.muted)
             list != null -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(list, key = { it.id }) { ch -> ChannelRow(ch) { onEnter(ch) } }
+                items(list, key = { it.id }) { ch -> ChannelRow(ch, onClick = { onEnter(ch) }, onManage = { manage = ch }) }
             }
         }
+    }
+
+    manage?.let { ch ->
+        val isOwner = ch.myRole == "owner"
+        val what = if (ch.kind == "direct") "private call" else if (ch.kind == "private") "group" else "channel"
+        AlertDialog(
+            onDismissRequest = { manage = null },
+            title = { Text(if (isOwner) "Delete $what?" else "Leave $what?") },
+            text = {
+                Text(if (isOwner) "\"${ch.name}\" will be deleted for everyone. All members are removed and anyone talking is disconnected. This can't be undone."
+                     else "You will be removed from \"${ch.name}\". ${if (ch.kind == "public") "You can join again any time." else "The owner must add you again to come back."}")
+            },
+            confirmButton = { TextButton(onClick = {
+                manage = null
+                scope.launch {
+                    try {
+                        if (isOwner) backend.deleteChannel(ch.id) else backend.leaveChannel(ch.id)
+                        engine.channelGone(ch.id)
+                        channels = engine.loadChannels()
+                    } catch (e: Exception) { error = friendlyError(e) }
+                }
+            }) { Text(if (isOwner) "Delete" else "Leave", color = Pal.red) } },
+            dismissButton = { TextButton(onClick = { manage = null }) { Text("Cancel") } },
+        )
     }
 
     if (showCreate) CreateChannelDialog(onDismiss = { showCreate = false }) { name, isPrivate ->
@@ -138,7 +165,7 @@ fun ChannelsScreen(
 }
 
 @Composable
-private fun ChannelRow(ch: Channel, onClick: () -> Unit) {
+private fun ChannelRow(ch: Channel, onClick: () -> Unit, onManage: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pal.panel)
             .border(1.dp, Pal.line, RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(16.dp),
@@ -161,6 +188,10 @@ private fun ChannelRow(ch: Channel, onClick: () -> Unit) {
             )
         }
         if (ch.onlineCount > 0) Spacer(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(Pal.green))
+        if (ch.isMember) IconButton(onClick = onManage) {
+            Icon(if (ch.myRole == "owner") Icons.Filled.Delete else Icons.Filled.Logout,
+                if (ch.myRole == "owner") "Delete" else "Leave", tint = Pal.muted)
+        }
     }
 }
 
