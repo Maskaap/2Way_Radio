@@ -66,6 +66,22 @@ class Backend(private val settings: Settings) {
         storeSession(JSONObject(call(sbRequest("/auth/v1/token?grant_type=password").post(body.toString().toRequestBody(JSON)).build())))
     }
 
+    /** Sends a password-reset e-mail. The link opens <server>/reset-password.html to choose a new password. */
+    suspend fun requestPasswordReset(email: String) {
+        ensureConfig()
+        val redirect = java.net.URLEncoder.encode("${settings.apiBaseUrl}/reset-password.html", "UTF-8")
+        val body = JSONObject().put("email", email.trim())
+        call(sbRequest("/auth/v1/recover?redirect_to=$redirect").post(body.toString().toRequestBody(JSON)).build())
+    }
+
+    /** Changes the password of the signed-in user. */
+    suspend fun changePassword(newPassword: String) {
+        ensureConfig()
+        val body = JSONObject().put("password", newPassword)
+        call(sbRequest("/auth/v1/user").header("Authorization", "Bearer ${validAccessToken()}")
+            .put(body.toString().toRequestBody(JSON)).build())
+    }
+
     fun signOut() {
         _session.value = null
         settings.saveSession(null)
@@ -234,6 +250,10 @@ fun friendlyError(e: Throwable): String = when ((e as? BackendException)?.code ?
     "session_expired" -> "Please sign in again"
     "email_not_confirmed" -> "Confirm your e-mail first (check your inbox)"
     "user_already_exists" -> "An account with this e-mail already exists"
+    "over_email_send_rate_limit", "over_request_rate_limit" -> "Too many requests – please wait a few minutes and try again"
+    "weak_password" -> "Password is too weak – use at least 8 characters with letters and numbers"
+    "same_password" -> "The new password must be different from the old one"
+    "reauthentication_needed" -> "For security, sign out and use “Forgot password?” instead"
     "subscription_required" -> "Your subscription or trial has ended – open Subscription to choose a plan"
     "plan_limit_channels" -> "Your plan's channel limit is reached – upgrade your plan for more channels"
     "plan_limit_members" -> "This channel is full for the owner's plan – the owner can upgrade for more users"

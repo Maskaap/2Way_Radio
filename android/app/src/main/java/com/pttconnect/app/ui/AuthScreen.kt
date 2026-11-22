@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +49,7 @@ fun AuthScreen(backend: Backend, settings: Settings) {
     var showServer by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
+    var showReset by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -95,6 +97,9 @@ fun AuthScreen(backend: Backend, settings: Settings) {
         ) {
             if (busy) CircularProgressIndicator(Modifier.height(22.dp), strokeWidth = 2.dp) else Text(if (register) "Create account" else "Sign in", fontSize = 18.sp)
         }
+        if (!register) TextButton(onClick = { showReset = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("Forgot password?", color = Pal.muted)
+        }
         TextButton(onClick = { register = !register; msg = null }, modifier = Modifier.fillMaxWidth()) {
             Text(if (register) "I already have an account" else "New here? Create an account")
         }
@@ -104,5 +109,42 @@ fun AuthScreen(backend: Backend, settings: Settings) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth())
             Button(onClick = { settings.apiBaseUrl = server; backend.resetConfig(); msg = "✓ Server saved" }) { Text("Save server") }
         }
+    }
+
+    if (showReset) {
+        var resetEmail by remember { mutableStateOf(email) }
+        var sending by remember { mutableStateOf(false) }
+        var resetMsg by remember { mutableStateOf<String?>(null) }
+        var sent by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showReset = false },
+            title = { Text("Reset password") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!sent) {
+                        Text("Enter your e-mail. We'll send you a link to choose a new password.")
+                        OutlinedTextField(resetEmail, { resetEmail = it }, label = { Text("E-mail") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+                    }
+                    resetMsg?.let { Text(it, color = if (sent) Pal.green else Pal.red) }
+                }
+            },
+            confirmButton = {
+                if (sent) TextButton(onClick = { showReset = false }) { Text("OK") }
+                else TextButton(enabled = !sending && resetEmail.contains("@"), onClick = {
+                    sending = true
+                    scope.launch {
+                        try {
+                            backend.requestPasswordReset(resetEmail)
+                            sent = true
+                            resetMsg = "If an account exists for ${resetEmail.trim()}, a reset link is on its way. " +
+                                "Check your inbox (and spam), open the link, choose a new password, then sign in here."
+                        } catch (e: Exception) { resetMsg = friendlyError(e) }
+                        sending = false
+                    }
+                }) { Text(if (sending) "Sending…" else "Send link") }
+            },
+            dismissButton = { if (!sent) TextButton(onClick = { showReset = false }) { Text("Cancel") } },
+        )
     }
 }

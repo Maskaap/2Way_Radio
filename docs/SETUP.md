@@ -88,3 +88,14 @@ Please report each step as ✅ or ❌, with what happened.
 ## 7. Local database testing (optional, for developers)
 
 The schema test in this repo runs against plain PostgreSQL with a small shim for Supabase's `auth` schema and roles. With the Supabase CLI you can instead run `supabase start` and `supabase db reset`, which applies `supabase/migrations/` automatically.
+
+## 8. Password reset (Forgot password?)
+
+Users tap **Forgot password?** on the login screen, or on the admin page, and enter their e-mail. Supabase e-mails them a link, which opens `https://YOUR-SITE.vercel.app/reset-password.html` where they choose a new password. Signed-in users can also use **Settings → Change password**.
+
+One-time Supabase setup:
+1. **Authentication → URL Configuration**
+   - **Site URL:** `https://YOUR-SITE.vercel.app`
+   - **Redirect URLs → Add URL:** `https://YOUR-SITE.vercel.app/reset-password.html` → Save
+2. **E-mail delivery:** Supabase's built-in e-mail is for testing only. It sends very few e-mails per hour and may only deliver to your own team's addresses. For real clients, set up your own sender under **Project Settings → Authentication → SMTP Settings** (for example Resend, Brevo, or your company mail server).
+3. *(Optional)* **Authentication → Emails → Reset Password**: change the wording, e.g. "Reset your Infinity H Group PTT password".

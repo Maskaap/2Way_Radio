@@ -11,7 +11,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -25,23 +27,29 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.sp
 import com.pttconnect.app.BuildConfig
 import com.pttconnect.app.data.AudioOutput
+import com.pttconnect.app.data.Backend
+import com.pttconnect.app.data.friendlyError
 import com.pttconnect.app.data.Settings
 import com.pttconnect.app.data.VolumeUpMode
 import com.pttconnect.app.ptt.KeyRouter
+import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(settings: Settings, keys: KeyRouter, onSubscription: () -> Unit, onBack: () -> Unit, onSignOut: () -> Unit) {
+fun SettingsScreen(settings: Settings, backend: Backend, keys: KeyRouter, onSubscription: () -> Unit, onBack: () -> Unit, onSignOut: () -> Unit) {
     val p by settings.prefs.collectAsState()
     var learning by remember { mutableStateOf(false) }
+    var showPw by remember { mutableStateOf(false) }
     DisposableEffect(Unit) { onDispose { keys.learner = null } }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -91,8 +99,51 @@ fun SettingsScreen(settings: Settings, keys: KeyRouter, onSubscription: () -> Un
 
         Section("About")
         Note("Version ${BuildConfig.VERSION_NAME}\nServer: ${settings.apiBaseUrl}\nDevice ID: ${settings.deviceUid}")
+        OutlinedButton(onClick = { showPw = true }, modifier = Modifier.fillMaxWidth()) { Text("Change password") }
         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out", color = Pal.red) }
     }
+
+    if (showPw) ChangePasswordDialog(backend) { showPw = false }
+}
+
+@Composable
+private fun ChangePasswordDialog(backend: Backend, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var p1 by remember { mutableStateOf("") }
+    var p2 by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var done by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Change password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!done) {
+                    OutlinedTextField(p1, { p1 = it }, label = { Text("New password (min. 8)") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
+                    OutlinedTextField(p2, { p2 = it }, label = { Text("Type it again") }, singleLine = true,
+                        visualTransformation = PasswordVisualTransformation())
+                }
+                msg?.let { Text(it, color = if (done) Pal.green else Pal.red) }
+            }
+        },
+        confirmButton = {
+            if (done) TextButton(onClick = onClose) { Text("OK") }
+            else TextButton(enabled = !busy, onClick = {
+                when {
+                    p1.length < 8 -> msg = "Use at least 8 characters"
+                    p1 != p2 -> msg = "The two passwords are not the same"
+                    else -> { busy = true; scope.launch {
+                        try { backend.changePassword(p1); done = true; msg = "Password changed. Use it next time you sign in." }
+                        catch (e: Exception) { msg = friendlyError(e) }
+                        busy = false
+                    } }
+                }
+            }) { Text(if (busy) "Saving…" else "Save") }
+        },
+        dismissButton = { if (!done) TextButton(onClick = onClose) { Text("Cancel") } },
+    )
 }
 
 @Composable private fun Section(t: String) {

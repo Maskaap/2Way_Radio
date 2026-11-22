@@ -25,6 +25,9 @@
   <a class="btn" href="/api/health">Health JSON</a>
 </div>
 <script>
+if (/type=recovery|error_code=|access_token=/.test(location.hash + location.search)) {
+  location.replace("/reset-password.html" + location.search + location.hash);
+}
 fetch("/api/health").then(r => r.json()).then(h => {
   const s = document.getElementById("status");
   s.innerHTML = h.ok ? '<span class="ok">● Everything is configured</span>' : '<span class="bad">● Setup incomplete – see below</span>';

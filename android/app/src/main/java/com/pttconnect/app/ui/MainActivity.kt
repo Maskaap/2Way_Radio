@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
                     onBack = { screen = if (graph.engine.state.value.channel != null) Screen.Ptt else Screen.Channels },
                 )
                 Screen.Settings -> SettingsScreen(
-                    settings = graph.settings, keys = graph.keys,
+                    settings = graph.settings, backend = graph.backend, keys = graph.keys,
                     onSubscription = { screen = Screen.Subscription },
                     onBack = { screen = if (graph.engine.state.value.channel != null) Screen.Ptt else Screen.Channels },
                     onSignOut = {

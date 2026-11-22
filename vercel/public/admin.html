@@ -56,7 +56,16 @@ function loginView(msg = "") {
   app.innerHTML = `<div class="card"><img src="/logo.png" alt="Infinity H Group" style="width:110px;height:110px;display:block;margin:0 auto 12px"><h2 style="text-align:center">PTT Connect admin</h2>
     <label>Email<input id="em" type="email" autocomplete="username"></label>
     <label>Password<input id="pw" type="password" autocomplete="current-password"></label>
-    <div class="err" id="er">${esc(msg)}</div><button class="btn ok" id="go">Sign in</button></div>`;
+    <div class="err" id="er">${esc(msg)}</div><button class="btn ok" id="go">Sign in</button>
+    <p><a href="#" id="forgot" style="color:#8b949e;font-size:14px">Forgot password?</a></p></div>`;
+  document.getElementById("forgot").onclick = async (e) => {
+    e.preventDefault();
+    const email = (em.value.trim() || prompt("Your e-mail address:") || "").trim();
+    if (!email) return;
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/reset-password.html" });
+    er.style.color = error ? "" : "#2ea043";
+    er.textContent = error ? error.message : "If an account exists for " + email + ", a reset link has been sent. Check your inbox (and spam).";
+  };
   document.getElementById("go").onclick = async () => {
     const { error } = await sb.auth.signInWithPassword({ email: em.value.trim(), password: pw.value });
     if (error) return (er.textContent = error.message);
