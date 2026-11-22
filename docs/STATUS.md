@@ -68,6 +68,14 @@ Rule used here: something is ✅ only if it was **actually run and checked**. "W
 | Android NFC reading (app open + tap-to-open), register dialog, beep/vibrate | 📝 Written + syntax-checked | Needs a phone with NFC + a tag |
 | Admin Checkpoints tab, CSV export, map pins | 📝 Written + syntax-checked | Needs a browser test |
 
+## Web app – cross-platform (added)
+
+| Feature | State | Evidence / what's left |
+|---|---|---|
+| Web app at `/app/` (iPhone, Android, PC) – installable | ✅ Tested in headless Chrome with a mock backend | Sign-in → channels → PTT screen → SOS banner → chat (history + offline send) → plans (yearly prices + saving). No JavaScript errors. Found and fixed 2 bugs (older iPhones' missing `randomUUID`, squeezed emergency message) |
+| All app ↔ database calls match the database functions | ✅ Checked automatically | 50 functions, web + Android + admin + API |
+| Live voice in the browser | ⏳ Needs your real test | Not testable here without LiveKit; uses the same LiveKit client library calls, verified against v2.25.0 |
+
 ## Phase 2: not started (by design)
 
 - Bluetooth PTT buttons and speaker-mics. These are usually media-button (`KEYCODE_HEADSETHOOK` / `MEDIA_PLAY_PAUSE`) or vendor BLE protocols, handled per device.

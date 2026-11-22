@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d1014">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PTT Connect">
+<title>PTT Connect</title>
+<link rel="manifest" href="/app/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
+<style>
+  :root { --bg:#0d1014; --panel:#161b22; --line:#2a313c; --text:#e9eef3; --muted:#8b96a3; --green:#2bb673; --red:#e5484d; --amber:#f5a524; --blue:#3e9bff; --orange:#f47b20; --navy:#0f2a4f; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); overscroll-behavior:none; }
+  #app { max-width:520px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  .pad { padding:16px; }
+  .row { display:flex; align-items:center; gap:8px; }
+  .grow { flex:1; min-width:0; }
+  .muted { color:var(--muted); } .small { font-size:13px; }
+  .btn { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .btn.primary { background:var(--orange); border-color:var(--orange); color:#fff; font-weight:600; }
+  .btn.danger { color:var(--red); border-color:var(--red); }
+  .btn.block { width:100%; padding:14px; }
+  .icon { background:none; border:0; padding:8px; font-size:22px; line-height:1; }
+  input, select, textarea { width:100%; padding:12px; margin:6px 0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:10px; font:inherit; }
+  h1 { font-size:28px; margin:8px 0; } h2 { font-size:20px; margin:8px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .list > .card { margin-bottom:8px; }
+  .chip { background:var(--panel); border-radius:12px; padding:5px 10px; font-size:13px; white-space:nowrap; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; }
+  .err { color:var(--red); min-height:1.3em; } .ok { color:var(--green); }
+  /* PTT */
+  #ptt-wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  #ptt { width:272px; height:272px; border-radius:50%; border:5px solid var(--green); background:rgba(43,182,115,.16);
+         display:grid; place-items:center; touch-action:none; user-select:none; -webkit-user-select:none; transition:background .15s, border-color .15s; }
+  #ptt img { width:250px; height:250px; pointer-events:none; transition:transform .12s cubic-bezier(.3,1.6,.5,1); -webkit-user-drag:none; }
+  #ptt.pressed img { transform: translateY(6px) scale(.88); }
+  #ptt.disabled { opacity:.45; }
+  #ptt-label { margin-top:10px; font-weight:700; letter-spacing:.5px; }
+  #status { font-size:20px; font-weight:600; text-align:center; min-height:56px; display:flex; align-items:center; justify-content:center; }
+  .sos { width:64px; height:64px; border-radius:50%; border:0; background:var(--red); color:#fff; font-weight:800; font-size:18px; position:relative; touch-action:none; user-select:none; }
+  .sos::after { content:""; position:absolute; inset:-4px; border-radius:50%; background:conic-gradient(#fff var(--p,0%), transparent 0); -webkit-mask:radial-gradient(circle, transparent 30px, #000 31px); mask:radial-gradient(circle, transparent 30px, #000 31px); }
+  .badge { position:absolute; top:-4px; right:-4px; background:var(--red); color:#fff; border-radius:10px; font-size:12px; font-weight:700; padding:1px 6px; }
+  .banner { background:var(--red); color:#fff; border-radius:12px; padding:12px; margin-top:8px; }
+  .banner button { background:none; border:0; color:#fff; font-weight:700; padding:6px 10px 0 0; }
+  #toast { position:fixed; left:50%; top:calc(12px + env(safe-area-inset-top)); transform:translateX(-50%); width:min(92vw,480px); border-radius:14px; padding:14px; color:#fff; font-weight:700; display:none; z-index:50; }
+  /* chat */
+  #chat { position:fixed; inset:0; background:var(--bg); display:none; flex-direction:column; z-index:30; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  #chat.open { display:flex; }
+  #msgs { flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column; gap:6px; }
+  .msg { max-width:80%; padding:8px 12px; border-radius:14px; background:var(--panel); align-self:flex-start; word-wrap:break-word; }
+  .msg.mine { align-self:flex-end; background:var(--orange); color:#fff; }
+  .msg .who { color:var(--orange); font-size:12px; font-weight:700; } .msg .t { font-size:11px; opacity:.75; text-align:right; }
+  .msg.sys { align-self:center; background:none; color:var(--muted); font-size:13px; text-align:center; }
+  .msg.alarm { align-self:stretch; max-width:none; background:var(--red); color:#fff; font-weight:700; text-align:center; }
+  .seg { display:flex; background:var(--panel); border-radius:24px; padding:4px; } .seg button { flex:1; border:0; background:none; padding:10px; border-radius:20px; color:var(--muted); font-weight:600; } .seg button.on { background:var(--orange); color:#fff; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(92vw,420px); }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+<div id="app"><p class="pad muted">Loading…</p></div>
+<div id="toast"></div>
+<div id="chat">
+  <div class="row pad" style="padding-bottom:6px"><button class="icon" id="chat-close">←</button>
+    <div class="grow"><b id="chat-title">Chat</b><div class="small muted" id="chat-sub"></div></div></div>
+  <div id="msgs"></div>
+  <form class="row pad" id="chat-form" style="padding-top:6px"><input id="chat-input" placeholder="Message" autocomplete="off" maxlength="2000" style="margin:0">
+    <button class="btn primary" type="submit">Send</button></form>
+</div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Room, RoomEvent, Track } from "https://esm.sh/livekit-client@2.25.0";
+
+// ------------------------------------------------------------------ setup
+const cfg = await fetch("/api/config").then(r => r.json());
+const sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true } });
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }).catch(() => {});
+
+const $ = id => document.getElementById(id);
+const app = $("app");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const ls = { get: (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+             set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+// crypto.randomUUID is missing on older iPhones (iOS < 15.4) – fall back to getRandomValues
+const uuid = () => crypto.randomUUID ? crypto.randomUUID() : "10000000-1000-4000-8000-100000000000".replace(/[018]/g,
+  c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+const deviceUid = ls.get("device_uid", null) || (() => { const id = uuid(); ls.set("device_uid", id); return id; })();
+const prefs = Object.assign({ tones: true, shareLocation: true }, ls.get("prefs", {}));
+const savePrefs = () => ls.set("prefs", prefs);
+const ERR = {
+  not_a_member: "You are not a member of this channel", device_blocked: "This device has been blocked by an administrator",
+  account_disabled: "Your account is disabled", subscription_required: "Your plan or trial has ended – open Plans",
+  plan_limit_channels: "Your plan's channel limit is reached – upgrade for more", plan_limit_members: "This channel is full for the owner's plan",
+  invalid_credentials: "Wrong e-mail or password", "Invalid login credentials": "Wrong e-mail or password",
+  email_not_confirmed: "Confirm your e-mail first (check your inbox)", not_allowed: "You don't have permission to do that",
+  cannot_remove_owner: "The owner can't be removed – delete the channel instead", channel_not_found: "This channel no longer exists",
+  payments_not_configured: "Online payments are not set up yet – please contact us", admin_only: "Only an administrator can do that",
+};
+const nice = e => { const m = e?.message || e?.error || String(e); return ERR[m] || ERR[e?.code] || m; };
+async function rpc(fn, args = {}) { const { data, error } = await sb.rpc(fn, args); if (error) throw error; return data; }
+async function api(path, body) {
+  const { data: { session } } = await sb.auth.getSession();
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + session?.access_token }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw { message: j.error || j.message || "http_" + r.status };
+  return j;
+}
+function toast(text, color = "var(--green)", ms = 4000) {
+  const t = $("toast"); t.textContent = text; t.style.background = color; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), ms);
+}
+const fmtTime = iso => { const d = new Date(iso), today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+const minsAgo = iso => Math.floor((Date.now() - new Date(iso)) / 60000);
+
+// ------------------------------------------------------------------ audio (tones + iOS unlock)
+let actx = null;
+function ctx() { if (!actx) try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} return actx; }
+function tone(freqs, dur = 0.12, type = "sine", vol = 0.18) {
+  if (!prefs.tones && type !== "square") return;
+  const c = ctx(); if (!c) return;
+  let t = c.currentTime;
+  for (const f of freqs) { const o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.value = f; g.gain.value = vol;
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur); t += dur; }
+}
+const T = { start: () => tone([1200], .1), end: () => tone([900, 700], .07), busy: () => tone([480, 0, 480, 0, 480], .12, "sine", .2),
+            error: () => tone([300], .3, "sine", .2), incoming: () => tone([1400], .06), alarm: () => tone([880, 660], .25, "square", .15) };
+document.addEventListener("pointerdown", () => { ctx()?.resume?.(); room?.startAudio?.().catch(() => {}); }, { capture: true });
+
+// ------------------------------------------------------------------ state
+const S = { user: null, profileName: "", channels: [], channel: null, conn: "idle", canTalk: true, tx: "idle",
+            remote: new Map(), participants: [], held: false, maxUntil: 0, alerts: [], silenced: new Set() };
+let room = null, keepTimer = null, reconnectTimer = null, wakeLock = null, userLeft = false;
+
+// ------------------------------------------------------------------ auth screens
+function viewLogin(msg = "", register = false) {
+  app.innerHTML = `<div class="pad" style="margin-top:20px">
+    <img src="/logo.png" alt="" style="width:130px;height:130px;display:block;margin:0 auto 6px">
+    <h1 style="text-align:center">PTT Connect</h1>
+    <p class="muted" style="text-align:center">${register ? "Create your account" : "Sign in to your radio network"}</p>
+    ${register ? `<input id="f-name" placeholder="Name / call sign" autocomplete="name"><input id="f-phone" placeholder="Mobile number (optional)" type="tel">` : ""}
+    <input id="f-email" placeholder="E-mail" type="email" autocomplete="username">
+    <input id="f-pass" placeholder="Password (min. 8 characters)" type="password" autocomplete="${register ? "new-password" : "current-password"}">
+    <div class="err" id="f-err">${esc(msg)}</div>
+    <button class="btn primary block" id="f-go">${register ? "Create account" : "Sign in"}</button>
+    ${register ? "" : `<p style="text-align:center"><a href="#" id="f-forgot" class="muted">Forgot password?</a></p>`}
+    <p style="text-align:center"><a href="#" id="f-switch" style="color:var(--orange)">${register ? "I already have an account" : "New here? Create an account"}</a></p>
+    <p class="small muted" style="text-align:center">On iPhone: tap Share → <b>Add to Home Screen</b> for an app icon.</p></div>`;
+  $("f-switch").onclick = e => { e.preventDefault(); viewLogin("", !register); };
+  $("f-forgot")?.addEventListener("click", async e => {
+    e.preventDefault();
+    const email = ($("f-email").value.trim() || prompt("Your e-mail:") || "").trim(); if (!email) return;
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/reset-password.html" });
+    $("f-err").innerHTML = error ? esc(nice(error)) : `<span class="ok">If an account exists for ${esc(email)}, a reset link has been sent.</span>`;
+  });
+  $("f-go").onclick = async () => {
+    const email = $("f-email").value.trim(), password = $("f-pass").value;
+    if (!email || password.length < 8) return ($("f-err").textContent = "Enter your e-mail and a password of at least 8 characters");
+    $("f-go").disabled = true;
+    try {
+      if (register) {
+        const name = $("f-name").value.trim(); if (!name) throw { message: "Enter your name" };
+        const { data, error } = await sb.auth.signUp({ email, password, options: { data: { display_name: name, phone: $("f-phone").value.trim() || null } } });
+        if (error) throw error;
+        if (!data.session) return viewLogin("Account created. Confirm the e-mail we sent you, then sign in.");
+      } else {
+        const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error;
+      }
+      await boot();
+    } catch (e) { $("f-err").textContent = nice(e); $("f-go").disabled = false; }
+  };
+}
+
+// ------------------------------------------------------------------ channels
+async function viewChannels(msg = "") {
+  app.innerHTML = `<div class="pad">
+    <div class="row"><img src="/logo.png" style="width:40px;height:40px"><h1 class="grow">Channels</h1>
+      <button class="btn" id="c-plans" style="color:var(--orange)">Plan</button><button class="icon" id="c-set">⚙️</button></div>
+    <div class="row" style="margin:8px 0 12px"><button class="btn" id="c-new">＋ New channel</button><button class="btn" id="c-call">👤 Private call</button>
+      ${S.channel ? `<button class="btn" id="c-back">Back to ${esc(S.channel.name)}</button>` : ""}</div>
+    <div class="err">${esc(msg)}</div><div class="list" id="c-list"><p class="muted">Loading…</p></div></div>`;
+  $("c-set").onclick = viewSettings; $("c-plans").onclick = viewPlans;
+  $("c-back")?.addEventListener("click", viewPtt);
+  $("c-new").onclick = async () => {
+    const name = prompt("Channel name:"); if (!name?.trim()) return;
+    const priv = confirm("Make it PRIVATE (members only)?\nOK = private, Cancel = public");
+    try { const id = await rpc("create_channel", { p_name: name.trim(), p_kind: priv ? "private" : "public" }); await loadChannels(); enter(S.channels.find(c => c.id === id)); }
+    catch (e) { viewChannels(nice(e)); }
+  };
+  $("c-call").onclick = () => pickUser("Private call", async u => { try { const id = await rpc("open_direct_call", { p_other_user: u.user_id }); await loadChannels(); enter(S.channels.find(c => c.id === id)); } catch (e) { viewChannels(nice(e)); } });
+  try { await loadChannels(); } catch (e) { $("c-list").innerHTML = `<p class="err">${esc(nice(e))}</p>`; return; }
+  $("c-list").innerHTML = S.channels.map(c => `<div class="card row" data-id="${c.id}">
+      <div class="grow" data-enter="${c.id}" style="cursor:pointer"><b style="font-size:18px">${c.kind === "private" ? "🔒" : c.kind === "direct" ? "👤" : "🌐"} ${esc(c.name)}</b>
+        <div class="small muted">${c.online_count} online · ${c.member_count} members${c.is_member ? "" : " · tap to join"}${c.is_member && !c.can_talk ? " · listen only" : ""}</div></div>
+      ${c.is_member ? `<button class="icon" data-manage="${c.id}" title="${c.my_role === "owner" ? "Delete" : "Leave"}">${c.my_role === "owner" ? "🗑️" : "🚪"}</button>` : ""}</div>`).join("")
+    || `<p class="muted">No channels yet. Create the first one.</p>`;
+  app.querySelectorAll("[data-enter]").forEach(el => el.onclick = () => enter(S.channels.find(c => c.id === el.dataset.enter)));
+  app.querySelectorAll("[data-manage]").forEach(el => el.onclick = () => manageChannel(S.channels.find(c => c.id === el.dataset.manage)));
+}
+async function loadChannels() { S.channels = await rpc("my_channels"); }
+async function manageChannel(c) {
+  const owner = c.my_role === "owner";
+  if (!confirm(owner ? `Delete "${c.name}" for everyone? This can't be undone.` : `Leave "${c.name}"?`)) return;
+  try { await api("/api/channel", owner ? { action: "delete", channelId: c.id } : { action: "remove_member", channelId: c.id, userId: S.user.id });
+        if (S.channel?.id === c.id) await leave(); viewChannels(); }
+  catch (e) { viewChannels(nice(e)); }
+}
+function pickUser(title, onPick) {
+  const d = document.createElement("dialog");
+  d.innerHTML = `<h2>${esc(title)}</h2><input id="pu-q" placeholder="Name, e-mail or phone"><button class="btn" id="pu-s">Search</button>
+    <div id="pu-r" style="margin-top:8px"></div><p><button class="btn" id="pu-x">Close</button></p>`;
+  document.body.appendChild(d); d.showModal();
+  d.querySelector("#pu-x").onclick = () => d.remove();
+  d.querySelector("#pu-s").onclick = async () => {
+    const hits = await rpc("find_users", { p_query: d.querySelector("#pu-q").value }).catch(() => []);
+    d.querySelector("#pu-r").innerHTML = hits.map(h => `<div class="row card" style="margin:4px 0;cursor:pointer" data-u="${h.user_id}"><span class="grow">${esc(h.display_name)}</span><b style="color:var(--orange)">Select</b></div>`).join("") || `<p class="muted">Nobody found</p>`;
+    d.querySelectorAll("[data-u]").forEach(el => el.onclick = () => { d.remove(); onPick(hits.find(h => h.user_id === el.dataset.u)); });
+  };
+}
+
+// ------------------------------------------------------------------ connect to a channel
+async function enter(c) {
+  if (!c) return;
+  if (S.tx !== "idle") await stopTx();
+  if (S.channel && S.channel.id !== c.id) rpc("exit_channel", { p_channel_id: S.channel.id }).catch(() => {});
+  S.channel = c; S.remote.clear(); S.participants = []; chatReset(); ls.set("last_channel", c.id);
+  viewPtt(); await connect();
+}
+async function connect(attempt = 0) {
+  clearTimeout(reconnectTimer);
+  const c = S.channel; if (!c) return;
+  setConn(attempt ? "reconnecting" : "connecting");
+  try {
+    const dev = await rpc("register_device", { p_device_uid: deviceUid, p_platform: "web", p_model: navigator.userAgent.slice(0, 120), p_app_version: "web-0.1" });
+    if (dev.blocked) throw { message: "device_blocked" };
+    const info = await rpc("enter_channel", { p_channel_id: c.id });
+    S.canTalk = info.can_talk !== false;
+    const { url, token } = await api("/api/token", { channelId: c.id, deviceUid });
+    if (room) { userLeft = true; await room.disconnect(); }
+    userLeft = false;
+    room = new Room({ adaptiveStream: false, dynacast: false });
+    wireRoom(room);
+    await room.connect(url, token);
+    room.startAudio().catch(() => {});
+    setConn("connected");
+    S.participants = [...room.remoteParticipants.values()].map(p => p.name || p.identity);
+    for (const p of room.remoteParticipants.values()) for (const pub of p.trackPublications.values())
+      if (pub.kind === Track.Kind.Audio && pub.track) { attachAudio(pub.track); S.remote.set(p.identity, p.name || "?"); }
+    updatePtt();
+    heartbeat(); flushOutbox(); chatSync(); refreshAlerts(); startLocation(); keepAwake();
+  } catch (e) {
+    const msg = nice(e);
+    setConn("error", msg);
+    const fatal = ["device_blocked", "account_disabled", "not_a_member", "subscription_required", "channel_not_found", "plan_limit_members"].includes(e?.message);
+    if (!fatal) reconnectTimer = setTimeout(() => connect(attempt + 1), Math.min(15000, 1000 * 2 ** attempt));
+  }
+}
+function wireRoom(r) {
+  r.on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+    if (track.kind !== Track.Kind.Audio) return;
+    attachAudio(track);
+    const quiet = S.remote.size === 0; S.remote.set(p.identity, p.name || "?");
+    if (quiet && S.tx !== "tx") T.incoming();
+    updatePtt();
+  });
+  r.on(RoomEvent.TrackUnsubscribed, (track, pub, p) => { track.detach().forEach(el => el.remove()); S.remote.delete(p.identity); if (S.tx === "busy" && !S.remote.size && !S.held) S.tx = "idle"; updatePtt(); });
+  r.on(RoomEvent.ParticipantConnected, () => { S.participants = [...r.remoteParticipants.values()].map(p => p.name || p.identity); updatePtt(); });
+  r.on(RoomEvent.ParticipantDisconnected, p => { S.remote.delete(p.identity); S.participants = [...r.remoteParticipants.values()].map(p => p.name || p.identity); updatePtt(); });
+  r.on(RoomEvent.DataReceived, (payload, p, kind, topic) => {
+    if (topic !== "ptt" || !p) return;
+    const t = new TextDecoder().decode(payload);
+    if (t === "tx_start") { const quiet = S.remote.size === 0; S.remote.set(p.identity, p.name || "?"); if (quiet && S.tx !== "tx") T.incoming(); updatePtt(); }
+    else if (t === "tx_end") { S.remote.delete(p.identity); updatePtt(); }
+    else if (t === "sync") chatSync();
+    else if (t === "alert") refreshAlerts();
+  });
+  r.on(RoomEvent.Reconnecting, () => setConn("reconnecting"));
+  r.on(RoomEvent.Reconnected, () => { setConn("connected"); chatSync(); });
+  r.on(RoomEvent.Disconnected, () => { if (userLeft || r !== room) return; stopTx(true); S.remote.clear(); connect(1); });
+}
+function attachAudio(track) { const el = track.attach(); el.autoplay = true; el.playsInline = true; el.style.display = "none"; document.body.appendChild(el); }
+function signal(text) { room?.localParticipant?.publishData(new TextEncoder().encode(text), { reliable: true, topic: "ptt" }).catch(() => {}); }
+async function leave() {
+  await stopTx(); userLeft = true; clearTimeout(reconnectTimer);
+  if (room) { await room.disconnect(); room = null; }
+  if (S.channel) rpc("exit_channel", { p_channel_id: S.channel.id }).catch(() => {});
+  S.channel = null; S.remote.clear(); stopLocation(); setConn("idle"); ls.set("last_channel", null);
+  try { await wakeLock?.release(); } catch {} wakeLock = null;
+}
+function heartbeat() { clearInterval(heartbeat.t); const beat = () => S.channel && rpc("heartbeat", { p_channel_id: S.channel.id }).catch(() => {}); beat(); heartbeat.t = setInterval(beat, 30000); }
+async function keepAwake() { try { if ("wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => (wakeLock = null)); } } catch {} }
+document.addEventListener("visibilitychange", () => { if (document.hidden) pttUp(true); else if (S.channel) { keepAwake(); chatSync(); refreshAlerts(); } });
+window.addEventListener("online", () => { if (S.channel && S.conn !== "connected") connect(1); flushOutbox(); });
+
+// ------------------------------------------------------------------ PTT
+async function pttDown() {
+  if (S.held) return; S.held = true; updatePtt();
+  if (!S.channel || S.conn !== "connected") { T.error(); return flash("Not connected"); }
+  if (!S.canTalk) { T.error(); S.tx = "denied"; return updatePtt(); }
+  if (S.remote.size && !S.alerts.some(a => a.user_id === S.user.id)) { T.busy(); S.tx = "busy"; return updatePtt(); }
+  S.tx = "requesting"; updatePtt();
+  let f;
+  try { f = await rpc("request_floor", { p_channel_id: S.channel.id }); }
+  catch (e) { T.error(); S.tx = "idle"; flash(nice(e)); return updatePtt(); }
+  if (!f.granted) { T.busy(); S.tx = S.held ? (f.reason === "listen_only" ? "denied" : "busy") : "idle"; if (f.holder_name) S.remote.set("_holder", f.holder_name); updatePtt(); setTimeout(() => { S.remote.delete("_holder"); updatePtt(); }, 1500); return; }
+  if (!S.held) { rpc("release_floor", { p_channel_id: S.channel.id }).catch(() => {}); S.tx = "idle"; return updatePtt(); }
+  try { await room.localParticipant.setMicrophoneEnabled(true); }
+  catch { rpc("release_floor", { p_channel_id: S.channel.id }).catch(() => {}); T.error(); S.tx = "idle"; flash("Microphone blocked – allow it in the browser settings"); return updatePtt(); }
+  signal("tx_start"); T.start(); navigator.vibrate?.(60);
+  S.tx = "tx"; S.maxUntil = Date.now() + (f.max_ms || 60000); updatePtt();
+  if (!S.held) return stopTx();
+  let fails = 0;
+  clearInterval(keepTimer);
+  keepTimer = setInterval(async () => {
+    if (Date.now() > S.maxUntil) return stopTx(true, "Maximum talk time reached");
+    try { const k = await rpc("keepalive_floor", { p_channel_id: S.channel.id }); fails = 0; if (!k.ok) stopTx(true, "Transmission ended by server"); }
+    catch { if (++fails >= 3) stopTx(true, "Connection lost while talking"); }
+    updatePtt();
+  }, 1500);
+}
+function pttUp(all = false) {
+  if (!S.held && !all) return;
+  S.held = false;
+  if (S.tx === "busy" || S.tx === "denied") S.tx = "idle";
+  else if (S.tx === "requesting" || S.tx === "tx") stopTx();
+  updatePtt();
+}
+async function stopTx(cut = false, why = "") {
+  clearInterval(keepTimer); keepTimer = null;
+  const was = S.tx === "tx";
+  S.tx = "idle"; S.held = cut ? false : S.held;
+  try { const pub = room?.localParticipant?.getTrackPublication(Track.Source.Microphone); if (pub?.track) await room.localParticipant.unpublishTrack(pub.track, true); } catch {}
+  if (was) { signal("tx_end"); cut ? T.error() : T.end(); }
+  if (S.channel) rpc("release_floor", { p_channel_id: S.channel.id }).catch(() => {});
+  if (why) flash(why);
+  updatePtt();
+}
+function flash(m) { S.flash = m; updatePtt(); clearTimeout(flash.t); flash.t = setTimeout(() => { S.flash = ""; updatePtt(); }, 4000); }
+function setConn(c, msg = "") { S.conn = c; S.connMsg = msg; updatePtt(); }
+window.addEventListener("keydown", e => { if (e.code === "Space" && !e.repeat && $("ptt") && document.activeElement?.tagName !== "INPUT" && !$("chat").classList.contains("open")) { e.preventDefault(); pttDown(); } });
+window.addEventListener("keyup", e => { if (e.code === "Space" && $("ptt")) { e.preventDefault(); pttUp(); } });
+
+// ------------------------------------------------------------------ PTT screen
+function viewPtt() {
+  if (!S.channel) return viewChannels();
+  app.innerHTML = `<div class="pad" style="display:flex;flex-direction:column;min-height:100vh">
+    <div class="row"><img src="/app/ptt_h.png" style="width:34px;height:34px"><span class="chip" id="net"></span><span class="chip" id="conn"></span>
+      <span class="grow"></span><button class="icon" id="p-mem" title="Members">👥</button><button class="icon" id="p-set">⚙️</button></div>
+    <div id="alerts"></div>
+    <div class="row" style="margin-top:12px"><button class="icon" id="p-prev" style="font-size:34px">‹</button>
+      <div class="grow" style="text-align:center;cursor:pointer" id="p-name"><div style="font-size:28px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(S.channel.name)}</div>
+        <div class="small muted">tap for all channels</div></div>
+      <button class="icon" id="p-next" style="font-size:34px">›</button></div>
+    <div style="text-align:center"><span class="chip" id="online"></span></div>
+    <div id="status"></div>
+    <div id="ptt-wrap"><div id="ptt"><img src="/app/ptt_h.png" alt="Push to talk" draggable="false"></div><div id="ptt-label"></div></div>
+    <div class="row" style="padding-bottom:6px">
+      <button class="sos" id="sos">SOS</button>
+      <div class="grow small muted" style="text-align:center">Hold the H to talk<br><span class="small">PC: hold Space</span></div>
+      <div style="position:relative"><button class="sos" id="p-chat" style="background:var(--panel)">💬</button><span class="badge" id="unread" style="display:none"></span></div>
+    </div></div>`;
+  const b = $("ptt");
+  b.addEventListener("pointerdown", e => { e.preventDefault(); b.setPointerCapture(e.pointerId); pttDown(); });
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, () => pttUp());
+  b.addEventListener("contextmenu", e => e.preventDefault());
+  $("p-name").onclick = viewChannels; $("p-set").onclick = viewSettings; $("p-chat").onclick = openChat; $("p-mem").onclick = viewMembers;
+  $("p-prev").onclick = () => step(-1); $("p-next").onclick = () => step(1);
+  sosButton($("sos"));
+  updatePtt(); renderAlerts(); updateUnread();
+}
+function step(d) {
+  const list = S.channels.filter(c => c.is_member && c.kind !== "direct"); if (!list.length) return;
+  const i = list.findIndex(c => c.id === S.channel?.id);
+  enter(list[((i < 0 ? 0 : i + d) % list.length + list.length) % list.length]);
+}
+function updatePtt() {
+  if (!$("ptt")) return;
+  const online = navigator.onLine;
+  $("net").innerHTML = online ? "📶 Online" : `<span style="color:var(--red)">Offline</span>`;
+  const cc = { connected: ["Connected", "var(--green)"], connecting: ["Connecting", "var(--amber)"], reconnecting: ["Reconnecting", "var(--amber)"], error: ["Error", "var(--red)"], idle: ["Idle", "var(--muted)"] }[S.conn];
+  $("conn").innerHTML = `<span class="dot" style="background:${cc[1]}"></span>${cc[0]}`;
+  $("online").textContent = S.participants.length ? `👥 ${S.participants.length + 1} online: ${S.participants.slice(0, 3).join(", ")}${S.participants.length > 3 ? "…" : ""}` : "👥 Only you online";
+  const speaker = [...S.remote.values()].pop();
+  const left = Math.max(0, Math.round((S.maxUntil - Date.now()) / 1000));
+  const [txt, col] = S.tx === "tx" ? [`YOU ARE TALKING · ${left}s left`, "var(--red)"]
+    : S.tx === "requesting" ? ["Requesting channel…", "var(--amber)"]
+    : S.tx === "busy" ? [`Channel busy${speaker ? " – " + speaker + " is talking" : ""}`, "var(--amber)"]
+    : S.tx === "denied" ? ["Listen only", "var(--amber)"]
+    : speaker ? [`${speaker} is talking`, "var(--blue)"]
+    : S.conn === "connected" ? [S.canTalk ? "Ready – hold to talk" : "Listen only", "var(--green)"]
+    : S.conn === "error" ? [S.connMsg || "Connection problem", "var(--red)"] : ["Connecting…", "var(--amber)"];
+  $("status").innerHTML = `<span style="color:${col}">${esc(S.flash || txt)}</span>`;
+  const halo = S.conn !== "connected" ? "var(--line)" : S.tx === "tx" ? "var(--red)" : ["requesting", "busy", "denied"].includes(S.tx) ? "var(--amber)" : speaker ? "var(--blue)" : "var(--green)";
+  const b = $("ptt"), pressed = S.held || S.tx === "tx" || S.tx === "requesting";
+  b.style.borderColor = halo; b.style.background = `color-mix(in srgb, ${halo} ${pressed ? 30 : 16}%, transparent)`;
+  b.classList.toggle("pressed", pressed); b.classList.toggle("disabled", S.conn !== "connected");
+  $("ptt-label").style.color = halo;
+  $("ptt-label").textContent = { tx: "TALKING", requesting: "…", busy: "BUSY", denied: "LISTEN ONLY" }[S.tx] || (speaker ? "RECEIVING" : "HOLD TO TALK");
+}
+setInterval(() => { if (S.tx === "tx") updatePtt(); }, 500);
+
+async function viewMembers() {
+  const c = S.channel; if (!c) return;
+  const d = document.createElement("dialog"); document.body.appendChild(d); d.showModal();
+  const owner = c.my_role === "owner", manage = owner || c.my_role === "moderator";
+  async function draw() {
+    const rows = await rpc("channel_roster", { p_channel_id: c.id }).catch(e => (d.innerHTML = `<p class="err">${esc(nice(e))}</p>`, []));
+    d.innerHTML = `<div class="row"><h2 class="grow">Members of ${esc(c.name)}</h2>${manage && c.kind === "private" ? `<button class="btn" id="m-add">Add</button>` : ""}</div>
+      ${rows.map(m => `<div class="row" style="padding:6px 0"><span class="dot" style="background:${m.online ? "var(--green)" : "var(--line)"}"></span>
+        <div class="grow">${esc(m.display_name)}<div class="small muted">${m.role}${m.can_talk ? "" : " · listen only"}</div></div>
+        ${manage && m.role !== "owner" ? `<button class="btn danger" data-rm="${m.user_id}" data-n="${esc(m.display_name)}">Remove</button>` : ""}</div>`).join("")}
+      <p><button class="btn danger block" id="m-gone">${owner ? "Delete this channel" : "Leave this channel"}</button></p><p><button class="btn block" id="m-x">Close</button></p>`;
+    d.querySelector("#m-x").onclick = () => d.remove();
+    d.querySelector("#m-add")?.addEventListener("click", () => pickUser("Add member", async u => { try { await rpc("add_member", { p_channel_id: c.id, p_user_id: u.user_id }); draw(); } catch (e) { alert(nice(e)); } }));
+    d.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => { if (confirm(`Remove ${b.dataset.n}?`)) { try { await api("/api/channel", { action: "remove_member", channelId: c.id, userId: b.dataset.rm }); draw(); } catch (e) { alert(nice(e)); } } });
+    d.querySelector("#m-gone").onclick = async () => { d.remove(); await manageChannel(c); };
+  }
+  draw();
+}
+
+// ------------------------------------------------------------------ chat (history + offline outbox)
+let msgs = [], lastId = 0, unread = 0, chatBusy = false;
+const outbox = () => ls.get("outbox", []);
+function chatReset() { msgs = outbox().filter(o => o.channel_id === S.channel?.id).map(pending); lastId = 0; unread = 0; updateUnread(); loadLatest(); }
+const pending = o => ({ id: 0, channel_id: o.channel_id, sender_id: S.user?.id, sender_name: S.profileName, kind: "text", body: o.body, created_at: o.created_at, client_id: o.client_id, pending: true });
+async function loadLatest() {
+  const ch = S.channel?.id; if (!ch) return;
+  const rows = await rpc("messages_before", { p_channel_id: ch, p_before_id: 9007199254740991, p_limit: 50 }).catch(() => null);
+  if (!rows || ch !== S.channel?.id) return;
+  lastId = rows.reduce((m, r) => Math.max(m, r.id), 0);
+  msgs = rows.concat(msgs.filter(m => m.pending)); renderChat();
+}
+async function chatSync() {
+  const ch = S.channel?.id; if (!ch || chatBusy) return; chatBusy = true;
+  try {
+    const fresh = await rpc("messages_since", { p_channel_id: ch, p_after_id: lastId, p_limit: 300 });
+    if (fresh.length && ch === S.channel?.id) {
+      lastId = Math.max(lastId, ...fresh.map(m => m.id));
+      const sent = new Set(fresh.map(m => m.client_id).filter(Boolean));
+      msgs = msgs.filter(m => !(m.pending && sent.has(m.client_id))).concat(fresh)
+        .filter((m, i, a) => a.findIndex(x => (x.id && x.id === m.id) || (!x.id && x.client_id === m.client_id)) === i)
+        .sort((a, b) => (a.pending - b.pending) || (a.id - b.id));
+      if (!$("chat").classList.contains("open")) { unread += fresh.filter(m => m.sender_id !== S.user.id).length; updateUnread(); }
+      renderChat();
+    }
+  } catch {} finally { chatBusy = false; }
+}
+setInterval(() => S.channel && chatSync(), 45000);
+async function flushOutbox() {
+  const box = outbox(); if (!box.length || !navigator.onLine) return;
+  const keep = []; let sent = false;
+  for (const o of box) {
+    try { await rpc("send_message", { p_channel_id: o.channel_id, p_body: o.body, p_client_id: o.client_id }); sent = true; }
+    catch (e) { if (!e?.code || String(e.message).includes("fetch")) keep.push(o); }
+  }
+  ls.set("outbox", keep);
+  if (sent) { signal("sync"); chatSync(); }
+}
+function sendChat(text) {
+  const body = text.trim().slice(0, 2000); if (!body || !S.channel) return;
+  const o = { client_id: uuid(), channel_id: S.channel.id, body, created_at: new Date().toISOString() };
+  ls.set("outbox", outbox().concat(o)); msgs.push(pending(o)); renderChat(); flushOutbox();
+}
+function renderChat() {
+  if (!$("chat").classList.contains("open")) return;
+  const box = $("msgs");
+  box.innerHTML = msgs.length ? msgs.map(m => m.kind === "emergency" ? `<div class="msg alarm">${esc(m.body)} · ${fmtTime(m.created_at)}</div>`
+    : m.kind === "system" ? `<div class="msg sys">${esc(m.body)} · ${fmtTime(m.created_at)}</div>`
+    : `<div class="msg ${m.pending || m.sender_id === S.user.id ? "mine" : ""}">${m.pending || m.sender_id === S.user.id ? "" : `<div class="who">${esc(m.sender_name)}</div>`}
+        ${esc(m.body)}<div class="t">${m.pending ? "⏳ waiting to send" : fmtTime(m.created_at)}</div></div>`).join("")
+    : `<p class="muted" style="text-align:center">No messages yet. Say hello 👋</p>`;
+  if (msgs.length >= 50) box.insertAdjacentHTML("afterbegin", `<button class="btn" id="older" style="align-self:center">Load older messages</button>`);
+  $("older")?.addEventListener("click", async () => {
+    const first = msgs.find(m => m.id)?.id; if (!first) return;
+    const older = await rpc("messages_before", { p_channel_id: S.channel.id, p_before_id: first, p_limit: 50 }).catch(() => []);
+    msgs = older.concat(msgs); const h = box.scrollHeight; renderChat(); box.scrollTop = box.scrollHeight - h;
+  });
+  box.scrollTop = box.scrollHeight;
+}
+function openChat() {
+  $("chat").classList.add("open"); $("chat-title").textContent = S.channel?.name || "Chat";
+  $("chat-sub").textContent = S.conn === "connected" ? "Messages are saved and synced" : "Offline – messages send when you reconnect";
+  unread = 0; updateUnread(); renderChat(); chatSync();
+}
+$("chat-close").onclick = () => $("chat").classList.remove("open");
+$("chat-form").onsubmit = e => { e.preventDefault(); sendChat($("chat-input").value); $("chat-input").value = ""; };
+function updateUnread() { const u = $("unread"); if (!u) return; u.style.display = unread ? "block" : "none"; u.textContent = unread > 99 ? "99+" : unread; }
+
+// ------------------------------------------------------------------ SOS / emergency
+function sosButton(btn) {
+  let t0 = 0, raf = 0, holding = false;
+  const reset = () => { holding = false; cancelAnimationFrame(raf); btn.style.setProperty("--p", "0%"); };
+  const tick = () => { if (!holding) return; const p = Math.min(1, (Date.now() - t0) / 2000); btn.style.setProperty("--p", (p * 100) + "%");
+    if (p >= 1) { reset(); raiseSos(); } else raf = requestAnimationFrame(tick); };
+  btn.addEventListener("pointerdown", e => { e.preventDefault(); btn.setPointerCapture(e.pointerId); holding = true; t0 = Date.now(); tick(); });
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) btn.addEventListener(ev, reset);
+}
+const getPos = () => new Promise(res => { if (!navigator.geolocation) return res(null);
+  navigator.geolocation.getCurrentPosition(p => res(p.coords), () => res(lastPos), { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }); });
+async function raiseSos() {
+  $("sos").textContent = "…";
+  try {
+    const pos = await getPos();
+    await rpc("raise_emergency", { p_channel_id: S.channel?.id ?? null, p_lat: pos?.latitude ?? null, p_lng: pos?.longitude ?? null });
+    navigator.vibrate?.([400, 150, 400, 150, 400]);
+    signal("alert"); signal("sync");
+    toast(pos ? "🚨 Emergency sent with your location" : "🚨 Emergency sent (no GPS position)", "var(--red)", 6000);
+    refreshAlerts(); chatSync();
+  } catch (e) { toast("Emergency NOT sent: " + nice(e), "var(--red)", 8000); }
+  if ($("sos")) $("sos").textContent = "SOS";
+}
+let alarmTimer = null;
+async function refreshAlerts() {
+  if (!S.user) return;
+  S.alerts = await rpc("open_emergencies", { p_channel_id: S.channel?.id ?? null }).catch(() => S.alerts);
+  renderAlerts();
+  const ringing = S.alerts.filter(a => a.user_id !== S.user.id && !S.silenced.has(a.id) && minsAgo(a.created_at) < 2);
+  if (ringing.length && !alarmTimer) { T.alarm(); navigator.vibrate?.([600, 300, 600]); alarmTimer = setInterval(() => { T.alarm(); navigator.vibrate?.([600, 300, 600]); }, 2000); }
+  if (!ringing.length && alarmTimer) { clearInterval(alarmTimer); alarmTimer = null; }
+}
+setInterval(() => refreshAlerts(), 15000);
+function renderAlerts() {
+  const box = $("alerts"); if (!box) return;
+  box.innerHTML = S.alerts.map(a => { const mine = a.user_id === S.user.id, m = minsAgo(a.created_at);
+    return `<div class="banner"><div style="font-weight:800;font-size:17px">${mine ? "🚨 YOUR EMERGENCY IS ACTIVE" : "🚨 EMERGENCY – " + esc(a.user_name || "Someone")}</div>
+      <div class="small">${m < 1 ? "just now" : m + " min ago"} · ${a.status === "acknowledged" ? "help is aware" : "waiting for response"}</div>
+      ${a.lat != null ? `<button data-map="${a.lat},${a.lng}">Show on map</button>` : ""}
+      ${mine ? `<button data-cancel="${a.id}">Cancel (false alarm)</button>` : `<button data-silence="${a.id}">Silence alarm</button>`}</div>`; }).join("");
+  box.querySelectorAll("[data-map]").forEach(b => b.onclick = () => window.open("https://www.google.com/maps?q=" + b.dataset.map, "_blank"));
+  box.querySelectorAll("[data-silence]").forEach(b => b.onclick = () => { S.silenced.add(Number(b.dataset.silence)); refreshAlerts(); });
+  box.querySelectorAll("[data-cancel]").forEach(b => b.onclick = async () => { await rpc("update_alert", { p_alert_id: Number(b.dataset.cancel), p_status: "cancelled" }).catch(e => alert(nice(e))); signal("alert"); signal("sync"); refreshAlerts(); });
+}
+
+// ------------------------------------------------------------------ location sharing (while open)
+let watchId = null, lastPos = null, lastSent = 0;
+function startLocation() {
+  if (!prefs.shareLocation || !navigator.geolocation || watchId !== null) return;
+  watchId = navigator.geolocation.watchPosition(async p => {
+    lastPos = p.coords;
+    if (Date.now() - lastSent < 29000 || S.conn !== "connected") return;
+    lastSent = Date.now();
+    let battery = null; try { battery = Math.round((await navigator.getBattery()).level * 100); } catch {}
+    rpc("report_location", { p_lat: p.coords.latitude, p_lng: p.coords.longitude, p_accuracy: p.coords.accuracy ?? null,
+      p_speed: p.coords.speed ?? null, p_heading: p.coords.heading ?? null, p_battery: battery }).catch(() => {});
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 15000 });
+}
+function stopLocation() { if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; } }
+
+// ------------------------------------------------------------------ NFC checkpoints (Chrome on Android only)
+async function scanNfc() {
+  if (!("NDEFReader" in window)) return toast("NFC scanning works in Chrome on Android. On iPhone use the Android app or ask your admin.", "var(--amber)", 6000);
+  try {
+    const reader = new NDEFReader(); const ac = new AbortController();
+    await reader.scan({ signal: ac.signal });
+    toast("Hold the phone against the checkpoint tag…", "var(--blue)", 15000);
+    reader.onreading = async e => {
+      ac.abort();
+      const uid = (e.serialNumber || "").replace(/:/g, "").toUpperCase();
+      const pos = await getPos();
+      try {
+        const r = await rpc("record_tag_scan", { p_tag_uid: uid, p_lat: pos?.latitude ?? null, p_lng: pos?.longitude ?? null });
+        navigator.vibrate?.(r.known ? [80, 60, 80] : [400]);
+        if (r.known) { T.start(); toast(`✓ Checked in: ${r.tag_name}${r.site ? " (" + r.site + ")" : ""}`); }
+        else if (r.is_admin) {
+          const name = prompt(`New tag ${uid}. Name for this checkpoint:`); if (!name) return;
+          const every = parseInt(prompt("Must be scanned every … minutes (leave empty for no schedule):") || "", 10);
+          await rpc("register_tag", { p_tag_uid: uid, p_name: name, p_site: null, p_lat: pos?.latitude ?? null, p_lng: pos?.longitude ?? null, p_expected_every_minutes: Number.isFinite(every) ? every : null });
+          toast(`✓ Checkpoint "${name}" registered`);
+        } else toast(`Unregistered tag ${uid} – scan saved, ask your admin to register it`, "var(--amber)", 6000);
+      } catch (err) { T.error(); toast("Scan NOT saved: " + nice(err), "var(--red)", 6000); }
+    };
+  } catch (e) { toast("NFC not available: " + (e.message || e), "var(--red)", 6000); }
+}
+
+// ------------------------------------------------------------------ settings & plans
+function viewSettings() {
+  app.innerHTML = `<div class="pad">
+    <div class="row"><button class="icon" id="s-back">←</button><h1>Settings</h1></div>
+    <div class="card" style="margin:10px 0"><b>${esc(S.profileName)}</b><div class="small muted">${esc(S.user?.email || "")}</div></div>
+    <button class="btn block" id="s-plans" style="margin-bottom:10px">Subscription & billing</button>
+    <label class="row card" style="margin-bottom:8px"><span class="grow">Talk tones (beeps)</span><input type="checkbox" id="s-tones" style="width:auto" ${prefs.tones ? "checked" : ""}></label>
+    <label class="row card" style="margin-bottom:4px"><span class="grow">Share my location while connected</span><input type="checkbox" id="s-loc" style="width:auto" ${prefs.shareLocation ? "checked" : ""}></label>
+    <p class="small muted">Used for the dispatcher map, geo-fences and SOS. Only administrators can see it.</p>
+    <button class="btn block" id="s-nfc" style="margin-bottom:10px">📍 Scan NFC checkpoint</button>
+    <button class="btn block" id="s-pw" style="margin-bottom:10px">Change password</button>
+    <button class="btn danger block" id="s-out">Sign out</button>
+    <p class="small muted" style="margin-top:16px">Web version. On iPhone: Share → Add to Home Screen. Keep the app open on screen to receive calls
+      (browsers pause audio in the background). For volume-key PTT and locked-screen use, use the Android app.</p></div>`;
+  $("s-back").onclick = () => S.channel ? viewPtt() : viewChannels();
+  $("s-plans").onclick = viewPlans; $("s-nfc").onclick = scanNfc;
+  $("s-tones").onchange = e => { prefs.tones = e.target.checked; savePrefs(); };
+  $("s-loc").onchange = e => { prefs.shareLocation = e.target.checked; savePrefs(); if (prefs.shareLocation) { if (S.channel) startLocation(); } else { stopLocation(); rpc("stop_location_sharing").catch(() => {}); } };
+  $("s-pw").onclick = async () => {
+    const p1 = prompt("New password (min. 8 characters):"); if (!p1) return;
+    if (p1.length < 8) return alert("Use at least 8 characters");
+    if (prompt("Type it again:") !== p1) return alert("The two passwords are not the same");
+    const { error } = await sb.auth.updateUser({ password: p1 }); alert(error ? nice(error) : "Password changed.");
+  };
+  $("s-out").onclick = async () => { await leave(); await sb.auth.signOut(); viewLogin(); };
+}
+async function viewPlans() {
+  let yearly = false;
+  app.innerHTML = `<div class="pad"><div class="row"><button class="icon" id="pl-back">←</button><img src="/logo.png" style="width:36px;height:36px"><h1>Subscription</h1></div>
+    <div id="pl-status" class="card" style="margin:10px 0">Loading…</div>
+    <div class="seg"><button id="pl-m" class="on">Monthly</button><button id="pl-y">Yearly</button></div>
+    <div id="pl-list" style="margin-top:12px"></div><div class="err" id="pl-err"></div>
+    <p class="small muted">Payments are processed securely by PayFast. Prices in South African Rand. Subscriptions renew until cancelled.</p></div>`;
+  $("pl-back").onclick = () => S.channel ? viewPtt() : viewChannels();
+  const [plans, mine] = await Promise.all([sb.from("plans").select("*").eq("active", true).order("sort_order").then(r => r.data || []), rpc("my_subscription").catch(() => ({}))]);
+  const R = c => c % 100 ? "R" + (c / 100).toFixed(2) : "R" + c / 100;
+  $("pl-status").innerHTML = mine.source === "admin" ? "Administrator – full access" : mine.source === "trial" ? `Free trial (${esc(mine.plan_name)}) until ${String(mine.ends_at).slice(0, 10)}`
+    : mine.source === "subscription" ? `${esc(mine.plan_name)} (${mine.period}) – ${mine.cancel_at_period_end ? "ends" : "renews"} ${String(mine.ends_at).slice(0, 10)}`
+    : mine.has_access ? "No plan yet (test mode)" : `<span style="color:var(--red)">No active plan – choose one below</span>`;
+  function draw() {
+    $("pl-m").classList.toggle("on", !yearly); $("pl-y").classList.toggle("on", yearly);
+    $("pl-list").innerHTML = plans.map(p => { const price = yearly ? p.yearly_price_cents : p.monthly_price_cents;
+      const save = p.monthly_price_cents && p.yearly_price_cents ? Math.round(100 - p.yearly_price_cents * 100 / (p.monthly_price_cents * 12)) : 0;
+      const current = mine.source === "subscription" && mine.plan_code === p.code;
+      return `<div class="card" style="margin-bottom:10px;border:${current ? "2px solid var(--green)" : p.code === "pro" ? "2px solid var(--orange)" : "1px solid var(--line)"}">
+        <div class="row"><b class="grow" style="font-size:22px">${esc(p.name)}</b>${current ? '<b style="color:var(--green)">YOUR PLAN</b>' : p.code === "pro" ? '<b style="color:var(--orange)">POPULAR</b>' : ""}</div>
+        <div class="muted small">${esc(p.description || "")}</div>
+        <div style="font-size:30px;font-weight:800;margin:6px 0">${price != null ? R(price) + `<span class="muted" style="font-size:16px;font-weight:400"> / ${yearly ? "year" : "month"}</span>` : "Custom price"}</div>
+        ${yearly && save > 0 ? `<div style="color:var(--orange);font-weight:600" class="small">Save ${save}% vs monthly</div>` : ""}
+        ${(p.features || []).map(f => `<div class="small">✓ ${esc(f)}</div>`).join("")}
+        <p>${current ? '<button class="btn block" disabled>Current plan</button>' : price != null ? `<button class="btn primary block" data-buy="${p.code}">Choose ${esc(p.name)} – ${R(price)}</button>`
+          : `<a class="btn block" style="display:block;text-align:center;text-decoration:none" href="mailto:${esc(mine.sales_email || "")}?subject=${encodeURIComponent(p.name + " plan enquiry")}">Contact us</a>`}</p></div>`; }).join("");
+    app.querySelectorAll("[data-buy]").forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      try { const { url } = await api("/api/pay/checkout", { plan: b.dataset.buy, period: yearly ? "yearly" : "monthly" }); location.href = url; }
+      catch (e) { $("pl-err").textContent = nice(e); b.disabled = false; }
+    });
+  }
+  $("pl-m").onclick = () => { yearly = false; draw(); }; $("pl-y").onclick = () => { yearly = true; draw(); };
+  draw();
+}
+
+// ------------------------------------------------------------------ start
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return viewLogin();
+  S.user = session.user;
+  const { data: prof } = await sb.from("profiles").select("display_name").eq("id", S.user.id).maybeSingle();
+  S.profileName = prof?.display_name || S.user.email;
+  await loadChannels().catch(() => {});
+  const last = ls.get("last_channel", null), c = S.channels.find(x => x.id === last);
+  if (c) enter(c); else viewChannels();
+  refreshAlerts();
+}
+sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") { S.user = null; viewLogin(); } });
+boot();
+</script>
+</body>
+</html>
