@@ -26,7 +26,7 @@ fetch("/api/health").then(r => r.json()).then(h => {
   const s = document.getElementById("status");
   s.innerHTML = h.ok ? '<span class="ok">● Everything is configured</span>' : '<span class="bad">● Setup incomplete – see below</span>';
   document.getElementById("checks").innerHTML = Object.entries(h.checks || {})
-    .map(([k, v]) => `<li><span class="${v === "set" || v === "ok" ? "ok" : "bad"}">${v === "set" || v === "ok" ? "✓" : "✗"}</span> ${k}: ${v}</li>`).join("");
+    .map(([k, v]) => `<li><span class="${v === "ok" || v.startsWith("set") ? "ok" : "bad"}">${v === "ok" || v.startsWith("set") ? "✓" : "✗"}</span> ${k}: ${v}</li>`).join("");
 }).catch(() => {
   document.getElementById("status").innerHTML = '<span class="bad">● API not reachable – check that Root Directory is set to "vercel"</span>';
 });
