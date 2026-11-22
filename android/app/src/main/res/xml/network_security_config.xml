@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Production traffic is HTTPS/WSS only (Vercel, Supabase and LiveKit Cloud all use TLS). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

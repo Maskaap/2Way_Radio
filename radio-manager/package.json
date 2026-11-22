@@ -1,0 +1,16 @@
+{
+  "name": "ptt-connect-radio-manager",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Phase 3 foundation: radio driver registry, write-safety guard, RoIP gateway contracts. No radio drivers included yet.",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

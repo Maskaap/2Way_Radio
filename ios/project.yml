@@ -1,0 +1,28 @@
+# XcodeGen spec – generates PTTConnect.xcodeproj on a Mac:
+#   brew install xcodegen && cd ios && xcodegen generate && open PTTConnect.xcodeproj
+name: PTTConnect
+options:
+  bundleIdPrefix: com.pttconnect
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: 2.19.0
+targets:
+  PTTConnect:
+    type: application
+    platform: iOS
+    sources: [PTTConnect]
+    dependencies:
+      - package: LiveKit
+      - sdk: PushToTalk.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pttconnect.app
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        CODE_SIGN_ENTITLEMENTS: PTTConnect/PTTConnect.entitlements
+        INFOPLIST_FILE: PTTConnect/Info.plist
+        # Your Vercel URL (also editable in the app):
+        PTT_API_BASE_URL: https://your-app.vercel.app

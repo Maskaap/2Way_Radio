@@ -1,0 +1,23 @@
+{
+  "name": "ptt-connect-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PTT Connect serverless API for Vercel: LiveKit tokens, floor-enforcement webhook, admin page",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.0",
+    "livekit-server-sdk": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vercel/node": "^5.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

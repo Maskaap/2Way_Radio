@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PTT Connect – Admin</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --text:#e6edf3; --muted:#8b949e; --accent:#2ea043; --warn:#d29922; --bad:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:16px; padding:14px 20px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; }
+  header .sp { flex:1; }
+  nav { display:flex; gap:4px; padding:10px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  nav button { background:none; border:1px solid transparent; color:var(--muted); padding:6px 12px; border-radius:6px; cursor:pointer; font:inherit; }
+  nav button.on { color:var(--text); border-color:var(--line); background:var(--panel); }
+  main { padding:20px; max-width:1200px; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:13px; }
+  tr:last-child td { border-bottom:none; }
+  .btn { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font:inherit; font-size:13px; }
+  .btn.bad { border-color:var(--bad); color:var(--bad); } .btn.ok { border-color:var(--accent); color:var(--accent); }
+  .tag { font-size:12px; padding:1px 7px; border-radius:10px; border:1px solid var(--line); color:var(--muted); }
+  .tag.on { color:var(--accent); border-color:var(--accent); } .tag.bad { color:var(--bad); border-color:var(--bad); } .tag.warn { color:var(--warn); border-color:var(--warn); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:20px; max-width:360px; margin:60px auto; }
+  input, select { width:100%; padding:9px; margin:6px 0 12px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; font:inherit; }
+  .muted { color:var(--muted); } .err { color:var(--bad); min-height:1.4em; }
+  h2 { font-size:16px; margin:0 0 12px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+  .row input { margin:0; max-width:320px; }
+</style>
+</head>
+<body>
+<div id="app"><p class="muted" style="padding:20px">Loading…</p></div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const cfg = await fetch("/api/config").then(r => r.json());
+const sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+const app = document.getElementById("app");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const ago = t => { if (!t) return "never"; const s = Math.round((Date.now() - new Date(t)) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s/60)}m ago` : new Date(t).toLocaleString(); };
+let tab = "active", floorSub = null;
+
+async function must(p) { const { data, error } = await p; if (error) { alert(error.message); throw error; } return data; }
+
+function loginView(msg = "") {
+  app.innerHTML = `<div class="card"><h2>PTT Connect admin</h2>
+    <label>Email<input id="em" type="email" autocomplete="username"></label>
+    <label>Password<input id="pw" type="password" autocomplete="current-password"></label>
+    <div class="err" id="er">${esc(msg)}</div><button class="btn ok" id="go">Sign in</button></div>`;
+  document.getElementById("go").onclick = async () => {
+    const { error } = await sb.auth.signInWithPassword({ email: em.value.trim(), password: pw.value });
+    if (error) return (er.textContent = error.message);
+    boot();
+  };
+}
+
+async function boot() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return loginView();
+  const me = await must(sb.from("profiles").select("display_name, role").eq("id", user.id).single());
+  if (me.role !== "admin") { await sb.auth.signOut(); return loginView("This account is not an admin."); }
+  app.innerHTML = `<header><h1>PTT Connect · Admin</h1><span class="sp"></span><span class="muted">${esc(me.display_name)}</span>
+    <button class="btn" id="out">Sign out</button></header>
+    <nav>${["active","users","devices","channels","log","radios"].map(t => `<button data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</nav>
+    <main id="main"></main>`;
+  out.onclick = async () => { await sb.auth.signOut(); loginView(); };
+  document.querySelectorAll("nav button").forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  if (!floorSub) floorSub = sb.channel("admin-floor").on("postgres_changes", { event: "*", schema: "public", table: "floor_state" }, () => { if (tab === "active" || tab === "channels") render(); }).subscribe();
+  render();
+}
+
+async function render() {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.t === tab));
+  const main = document.getElementById("main");
+  main.innerHTML = `<p class="muted">Loading…</p>`;
+  main.innerHTML = await views[tab]();
+  main.querySelectorAll("[data-act]").forEach(el => el.onclick = () => actions[el.dataset.act](el.dataset));
+}
+
+const views = {
+  async active() {
+    const users = await must(sb.rpc("admin_active_users"));
+    const floors = await must(sb.from("floor_state").select("holder_name, lease_until, max_until, channels(name)").not("holder_id", "is", null));
+    const live = floors.filter(f => new Date(f.lease_until) > new Date());
+    return `<h2>Talking now</h2>${live.length ? `<table><tr><th>Channel</th><th>Speaker</th><th>Max until</th></tr>${live.map(f => `<tr><td>${esc(f.channels?.name)}</td><td><span class="tag on">● ${esc(f.holder_name)}</span></td><td>${new Date(f.max_until).toLocaleTimeString()}</td></tr>`).join("")}</table>` : `<p class="muted">Nobody is transmitting.</p>`}
+      <h2 style="margin-top:24px">Online (last 90 s) – ${users.length}</h2>
+      <table><tr><th>User</th><th>Channel</th><th>Last seen</th></tr>${users.map(u => `<tr><td>${esc(u.display_name)}</td><td>${esc(u.channel_name ?? "–")}</td><td>${ago(u.last_seen_at)}</td></tr>`).join("") || `<tr><td colspan=3 class="muted">No one online</td></tr>`}</table>
+      <p class="muted"><button class="btn" data-act="refresh">Refresh</button></p>`;
+  },
+  async users() {
+    const rows = await must(sb.from("profiles").select("id, display_name, phone, role, disabled, last_seen_at, created_at").order("created_at", { ascending: false }).limit(500));
+    return `<h2>Users (${rows.length})</h2><table><tr><th>Name</th><th>Phone</th><th>Role</th><th>Status</th><th>Last seen</th><th></th></tr>
+      ${rows.map(u => `<tr><td>${esc(u.display_name)}<div class="muted" style="font-size:12px">${u.id}</div></td><td>${esc(u.phone ?? "")}</td>
+        <td><span class="tag ${u.role === "admin" ? "warn" : ""}">${u.role}</span></td>
+        <td>${u.disabled ? `<span class="tag bad">disabled</span>` : `<span class="tag on">active</span>`}</td><td>${ago(u.last_seen_at)}</td>
+        <td><button class="btn" data-act="role" data-id="${u.id}" data-role="${u.role}" data-dis="${u.disabled}">${u.role === "admin" ? "Make user" : "Make admin"}</button>
+            <button class="btn ${u.disabled ? "ok" : "bad"}" data-act="disable" data-id="${u.id}" data-role="${u.role}" data-dis="${u.disabled}">${u.disabled ? "Enable" : "Disable"}</button></td></tr>`).join("")}</table>`;
+  },
+  async devices() {
+    const rows = await must(sb.from("devices").select("id, device_uid, platform, model, app_version, blocked, blocked_reason, last_seen_at, profiles(display_name)").order("last_seen_at", { ascending: false }).limit(500));
+    return `<h2>Registered phones (${rows.length})</h2><table><tr><th>User</th><th>Device</th><th>App</th><th>Last seen</th><th>Status</th><th></th></tr>
+      ${rows.map(d => `<tr><td>${esc(d.profiles?.display_name ?? "–")}</td><td>${esc(d.platform)} · ${esc(d.model ?? "")}<div class="muted" style="font-size:12px">${esc(d.device_uid)}</div></td>
+        <td>${esc(d.app_version ?? "")}</td><td>${ago(d.last_seen_at)}</td>
+        <td>${d.blocked ? `<span class="tag bad">blocked</span> <span class="muted">${esc(d.blocked_reason ?? "")}</span>` : `<span class="tag on">allowed</span>`}</td>
+        <td><button class="btn ${d.blocked ? "ok" : "bad"}" data-act="block" data-id="${d.id}" data-blocked="${d.blocked}">${d.blocked ? "Unblock" : "Block"}</button></td></tr>`).join("")}</table>
+      <p class="muted">Blocking takes effect the next time the phone requests a channel token (on channel switch or reconnect). Disable the user as well to cut them off immediately.</p>`;
+  },
+  async channels() {
+    const chans = await must(sb.from("channels").select("id, name, kind, max_talk_seconds, archived, floor_state(holder_name, lease_until), channel_members(user_id, role, can_talk, profiles(display_name))").order("name"));
+    return `<h2>Channels (${chans.length})</h2>${chans.map(c => {
+      const f = Array.isArray(c.floor_state) ? c.floor_state[0] : c.floor_state;
+      const talking = f?.holder_name && new Date(f.lease_until) > new Date();
+      return `<table style="margin-bottom:16px"><tr><th colspan=4>${esc(c.name)} <span class="tag">${c.kind}</span> <span class="muted">max ${c.max_talk_seconds}s</span>
+        ${talking ? `<span class="tag on">● ${esc(f.holder_name)} talking</span>` : ""} ${c.archived ? `<span class="tag bad">archived</span>` : ""}
+        <button class="btn" style="float:right" data-act="archive" data-id="${c.id}" data-arch="${c.archived}">${c.archived ? "Restore" : "Archive"}</button></th></tr>
+        ${c.channel_members.map(m => `<tr><td>${esc(m.profiles?.display_name)}</td><td><span class="tag">${m.role}</span></td>
+          <td>${m.can_talk ? `<span class="tag on">can talk</span>` : `<span class="tag warn">listen only</span>`}</td>
+          <td><button class="btn" data-act="talk" data-ch="${c.id}" data-id="${m.user_id}" data-can="${m.can_talk}">${m.can_talk ? "Make listen-only" : "Allow talk"}</button>
+              ${m.role !== "owner" ? `<button class="btn bad" data-act="kick" data-ch="${c.id}" data-id="${m.user_id}">Remove</button>` : ""}</td></tr>`).join("") || `<tr><td class="muted" colspan=4>No members</td></tr>`}</table>`;
+    }).join("")}`;
+  },
+  async log() {
+    const rows = await must(sb.from("connection_log").select("created_at, event, device_uid, detail, profiles(display_name), channels(name)").order("created_at", { ascending: false }).limit(300));
+    return `<h2>Connection history (latest 300)</h2><table><tr><th>Time</th><th>Event</th><th>User</th><th>Channel</th><th>Device / detail</th></tr>
+      ${rows.map(r => `<tr><td>${new Date(r.created_at).toLocaleString()}</td><td><span class="tag ${/blocked|revoked|failed/.test(r.event) ? "bad" : ""}">${esc(r.event)}</span></td>
+        <td>${esc(r.profiles?.display_name ?? "–")}</td><td>${esc(r.channels?.name ?? "")}</td><td class="muted">${esc(r.device_uid ?? "")} ${r.detail ? esc(JSON.stringify(r.detail)) : ""}</td></tr>`).join("")}</table>`;
+  },
+  async radios() {
+    const rows = await must(sb.from("radio_devices").select("*").order("created_at", { ascending: false }));
+    return `<h2>Radio registry (Phase 3 – inventory only)</h2>
+      <p class="muted">This only records radios you own. Reading or programming radios is not implemented yet and will only be added per model using documented, authorised protocols.</p>
+      <div class="row"><input id="rb" placeholder="Brand (e.g. Motorola)"><input id="rm" placeholder="Model"><input id="rs" placeholder="Serial (optional)"><button class="btn ok" data-act="addRadio">Add</button></div>
+      <table><tr><th>Brand</th><th>Model</th><th>Serial</th><th>Kind</th><th>Link</th><th>Added</th></tr>
+      ${rows.map(r => `<tr><td>${esc(r.brand)}</td><td>${esc(r.model)}</td><td>${esc(r.serial_number ?? "")}</td><td>${esc(r.kind)}</td><td>${esc(r.link)}</td><td>${ago(r.created_at)}</td></tr>`).join("") || `<tr><td colspan=6 class="muted">None registered</td></tr>`}</table>`;
+  },
+};
+
+const actions = {
+  refresh: () => render(),
+  role: async d => { await must(sb.rpc("admin_set_user", { p_user_id: d.id, p_role: d.role === "admin" ? "user" : "admin", p_disabled: d.dis === "true" })); render(); },
+  disable: async d => { await must(sb.rpc("admin_set_user", { p_user_id: d.id, p_role: d.role, p_disabled: d.dis !== "true" })); render(); },
+  block: async d => {
+    const blocking = d.blocked !== "true";
+    const reason = blocking ? prompt("Reason for blocking this phone?", "Lost / stolen") : null;
+    if (blocking && reason === null) return;
+    await must(sb.rpc("admin_set_device_blocked", { p_device_id: d.id, p_blocked: blocking, p_reason: reason })); render();
+  },
+  talk: async d => { await must(sb.rpc("admin_set_can_talk", { p_channel_id: d.ch, p_user_id: d.id, p_can_talk: d.can !== "true" })); render(); },
+  kick: async d => { if (confirm("Remove this member from the channel?")) { await must(sb.rpc("remove_member", { p_channel_id: d.ch, p_user_id: d.id })); render(); } },
+  archive: async d => { await must(sb.from("channels").update({ archived: d.arch !== "true" }).eq("id", d.id)); render(); },
+  addRadio: async () => {
+    if (!rb.value.trim() || !rm.value.trim()) return alert("Brand and model are required");
+    const { data: { user } } = await sb.auth.getUser();
+    await must(sb.from("radio_devices").insert({ brand: rb.value.trim(), model: rm.value.trim(), serial_number: rs.value.trim() || null, registered_by: user.id })); render();
+  },
+};
+
+boot();
+</script>
+</body>
+</html>
