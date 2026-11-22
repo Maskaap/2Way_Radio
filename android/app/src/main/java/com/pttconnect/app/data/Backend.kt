@@ -171,6 +171,30 @@ class Backend(private val settings: Settings) {
         return o.getString("url") to o.getString("token")
     }
 
+    // ------------------------------------------------------------------ billing
+    suspend fun plans(): List<Plan> {
+        ensureConfig()
+        suspend fun attempt(force: Boolean) = call(sbRequest("/rest/v1/plans?select=*&active=eq.true&order=sort_order")
+            .header("Authorization", "Bearer ${validAccessToken(force)}").get().build())
+        val text = try { attempt(false) } catch (e: BackendException) { if (e.httpStatus == 401) attempt(true) else throw e }
+        return JSONArray(text).let { a -> List(a.length()) { Plan.from(a.getJSONObject(it)) } }
+    }
+
+    suspend fun mySubscription(): MySubscription = MySubscription.from(JSONObject(rpc("my_subscription")))
+
+    /** Returns the URL to open in the browser (it forwards to PayFast). */
+    suspend fun startCheckout(planCode: String, yearly: Boolean): String =
+        JSONObject(apiPost("/api/pay/checkout", JSONObject().put("plan", planCode).put("period", if (yearly) "yearly" else "monthly"))).getString("url")
+
+    suspend fun cancelSubscription() { apiPost("/api/pay/cancel", JSONObject()) }
+
+    private suspend fun apiPost(path: String, body: JSONObject): String {
+        suspend fun attempt(force: Boolean) = call(Request.Builder().url("${settings.apiBaseUrl}$path")
+            .header("Authorization", "Bearer ${validAccessToken(force)}")
+            .post(body.toString().toRequestBody(JSON)).build())
+        return try { attempt(false) } catch (e: BackendException) { if (e.httpStatus == 401) attempt(true) else throw e }
+    }
+
     // ------------------------------------------------------------------ plumbing
     private fun sbRequest(path: String) = Request.Builder()
         .url("${supabaseUrl ?: throw BackendException("no_config")}$path")
@@ -210,5 +234,11 @@ fun friendlyError(e: Throwable): String = when ((e as? BackendException)?.code ?
     "session_expired" -> "Please sign in again"
     "email_not_confirmed" -> "Confirm your e-mail first (check your inbox)"
     "user_already_exists" -> "An account with this e-mail already exists"
+    "subscription_required" -> "Your subscription or trial has ended – open Subscription to choose a plan"
+    "plan_limit_channels" -> "Your plan's channel limit is reached – upgrade your plan for more channels"
+    "plan_limit_members" -> "This channel is full for the owner's plan – the owner can upgrade for more users"
+    "plan_not_for_sale" -> "This plan is sold on request – please contact us"
+    "payments_not_configured" -> "Online payments are not set up yet – please contact us"
+    "manual_subscription" -> "Your plan is managed by the administrator – please contact us to change it"
     else -> e.message ?: "Something went wrong"
 }

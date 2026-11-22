@@ -39,7 +39,7 @@ import com.pttconnect.app.data.VolumeUpMode
 import com.pttconnect.app.ptt.KeyRouter
 
 @Composable
-fun SettingsScreen(settings: Settings, keys: KeyRouter, onBack: () -> Unit, onSignOut: () -> Unit) {
+fun SettingsScreen(settings: Settings, keys: KeyRouter, onSubscription: () -> Unit, onBack: () -> Unit, onSignOut: () -> Unit) {
     val p by settings.prefs.collectAsState()
     var learning by remember { mutableStateOf(false) }
     DisposableEffect(Unit) { onDispose { keys.learner = null } }
@@ -49,6 +49,8 @@ fun SettingsScreen(settings: Settings, keys: KeyRouter, onBack: () -> Unit, onSi
             IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back", tint = Pal.text) }
             Text("Settings", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Pal.text)
         }
+
+        OutlinedButton(onClick = onSubscription, modifier = Modifier.fillMaxWidth()) { Text("Subscription & billing") }
 
         Section("PTT tones")
         Toggle("Talk-permit tone (start)", p.startToneEnabled) { v -> settings.update { it.copy(startToneEnabled = v) } }

@@ -27,6 +27,18 @@ Rule used here: something is ✅ only if it was **actually run and checked**. "W
 | Receive with screen off (foreground service) | 📝 Written | Phone test (step 13). Some brands' battery savers kill apps; you may need to exempt the app from battery optimisation |
 | Safe handling: key-up lost on focus change, max talk time, keep-alive failure | 📝 Written | |
 
+## Billing (added)
+
+| Feature | State | Evidence / what's left |
+|---|---|---|
+| Plans Basic / Pro / Business, monthly + yearly, prices editable in DB | ✅ Tested (DB) | Prices R150/R1000, R200/R1500; Business = contact us |
+| Trial, channel limit, users-per-channel limit, expiry, admin bypass | ✅ Tested (DB) | 14 checks in `supabase/tests/20_billing_test.sql` |
+| Payment notification handling: activate, renew, duplicate, tampered amount, cancel | ✅ Tested (DB) | |
+| PayFast signatures (checkout, notification, API) | ✅ Tested | Identical to PHP `urlencode` + `md5` reference |
+| Checkout → PayFast → back, real sandbox payment | ⏳ Needs your PayFast sandbox account | See docs/BILLING.md |
+| Admin Plans / Subscriptions / Settings tabs | 📝 Written | Syntax-checked; not yet clicked through in a browser |
+| Android Subscription screen | 📝 Written | Part of the next APK build |
+
 ## Phase 2: not started (by design)
 
 - Bluetooth PTT buttons and speaker-mics. These are usually media-button (`KEYCODE_HEADSETHOOK` / `MEDIA_PLAY_PAUSE`) or vendor BLE protocols, handled per device.

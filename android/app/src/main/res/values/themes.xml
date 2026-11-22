@@ -7,4 +7,8 @@
     </style>
     <color name="bg">#FF0D1014</color>
     <color name="accent">#FF2BB673</color>
+    <color name="icon_bg">#FFFFFFFF</color>
+    <!-- Infinity H Group brand colours -->
+    <color name="brand_navy">#FF0F2A4F</color>
+    <color name="brand_orange">#FFF47B20</color>
 </resources>

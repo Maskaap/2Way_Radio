@@ -558,6 +558,14 @@ grant execute on function
 to authenticated;
 grant execute on function public.floor_holder(uuid), public.expire_floors() to service_role;
 
+-- Table privileges. Some Supabase projects do NOT auto-expose new tables to the API roles,
+-- so grant explicitly. RLS policies above still decide which ROWS each user may touch.
+grant usage on schema public to anon, authenticated, service_role;
+grant all on all tables    in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+grant select, update on all tables in schema public to authenticated;
+grant insert, delete on public.radio_devices, public.gateways to authenticated;
+
 -- Realtime: lets the admin page (and future clients) watch floor changes live.
 do $$ begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then

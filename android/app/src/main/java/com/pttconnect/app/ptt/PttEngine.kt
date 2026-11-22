@@ -142,7 +142,7 @@ class PttEngine(
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "connect failed", e)
-                val fatal = (e as? BackendException)?.code in setOf("device_blocked", "account_disabled", "not_a_member", "session_expired", "not_signed_in")
+                val fatal = (e as? BackendException)?.code in setOf("device_blocked", "account_disabled", "not_a_member", "session_expired", "not_signed_in", "subscription_required", "plan_limit_members")
                 _state.update { it.copy(conn = ConnState.ERROR, message = friendlyError(e)) }
                 if (fatal) return
                 delay(backoff)

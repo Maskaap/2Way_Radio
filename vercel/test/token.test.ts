@@ -8,6 +8,7 @@ const base: TokenContext = {
   channel: { id: "c1", kind: "public", archived: false },
   membership: { can_talk: true },
   device: { blocked: false, blocked_reason: null, user_id: "u1" },
+  hasAccess: true,
 };
 
 test("member with talk rights gets publish token", () => {
@@ -16,6 +17,10 @@ test("member with talk rights gets publish token", () => {
 
 test("listen-only member gets subscribe-only token", () => {
   assert.deepEqual(decideToken({ ...base, membership: { can_talk: false } }), { ok: true, canPublish: false });
+});
+
+test("expired subscription is refused with 402", () => {
+  assert.deepEqual(decideToken({ ...base, hasAccess: false }), { ok: false, status: 402, code: "subscription_required" });
 });
 
 test("blocked device is refused with reason", () => {

@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
         if (needed.isEmpty()) then() else { onPermissions = then; permLauncher.launch(needed.toTypedArray()) }
     }
 
-    sealed interface Screen { data object Channels : Screen; data object Ptt : Screen; data object Settings : Screen }
+    sealed interface Screen { data object Channels : Screen; data object Ptt : Screen; data object Settings : Screen; data object Subscription : Screen }
 
     @Composable
     private fun Root() {
@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
                     onEnter = enter,
                     onBack = if (graph.engine.state.value.channel != null) ({ screen = Screen.Ptt }) else null,
                     onSettings = { screen = Screen.Settings },
+                    onSubscription = { screen = Screen.Subscription },
                 )
                 Screen.Ptt -> PttScreen(
                     engine = graph.engine, backend = graph.backend,
@@ -100,8 +101,13 @@ class MainActivity : ComponentActivity() {
                     onSettings = { screen = Screen.Settings },
                     onEnterChannel = enter,
                 )
+                Screen.Subscription -> SubscriptionScreen(
+                    backend = graph.backend,
+                    onBack = { screen = if (graph.engine.state.value.channel != null) Screen.Ptt else Screen.Channels },
+                )
                 Screen.Settings -> SettingsScreen(
                     settings = graph.settings, keys = graph.keys,
+                    onSubscription = { screen = Screen.Subscription },
                     onBack = { screen = if (graph.engine.state.value.channel != null) Screen.Ptt else Screen.Channels },
                     onSignOut = {
                         graph.engine.leaveChannel()

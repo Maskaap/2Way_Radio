@@ -24,5 +24,6 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         CODE_SIGN_ENTITLEMENTS: PTTConnect/PTTConnect.entitlements
         INFOPLIST_FILE: PTTConnect/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Your Vercel URL (also editable in the app):
         PTT_API_BASE_URL: https://your-app.vercel.app

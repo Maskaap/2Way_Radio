@@ -6,6 +6,8 @@ export interface TokenContext {
   channel: { id: string; kind: string; archived: boolean } | null;
   membership: { can_talk: boolean } | null;
   device: { blocked: boolean; blocked_reason: string | null; user_id: string | null } | null;
+  /** Result of access_for(): false when a subscription is required and missing/expired. */
+  hasAccess: boolean;
 }
 
 export type TokenDecision =
@@ -20,6 +22,7 @@ export function decideToken(ctx: TokenContext): TokenDecision {
     return { ok: false, status: 403, code: "device_blocked", message: ctx.device.blocked_reason ?? undefined };
   }
   if (ctx.device.user_id !== ctx.profile.id) return { ok: false, status: 403, code: "device_not_registered" };
+  if (!ctx.hasAccess) return { ok: false, status: 402, code: "subscription_required" };
   if (!ctx.channel || ctx.channel.archived) return { ok: false, status: 404, code: "channel_not_found" };
   // Membership is created by enter_channel() for public channels, so it's required for all kinds.
   if (!ctx.membership) return { ok: false, status: 403, code: "not_a_member" };

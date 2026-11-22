@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PTT Connect – Admin</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --text:#e6edf3; --muted:#8b949e; --accent:#2ea043; --warn:#d29922; --bad:#f85149; }
   * { box-sizing:border-box; }
@@ -29,6 +31,10 @@
   h2 { font-size:16px; margin:0 0 12px; }
   .row { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
   .row input { margin:0; max-width:320px; }
+  td input, td textarea, td select { margin:0; padding:6px; font-size:14px; }
+  td textarea { min-height:90px; width:100%; }
+  .money { max-width:110px; }
+  .small { font-size:12px; }
 </style>
 </head>
 <body>
@@ -47,7 +53,7 @@ let tab = "active", floorSub = null;
 async function must(p) { const { data, error } = await p; if (error) { alert(error.message); throw error; } return data; }
 
 function loginView(msg = "") {
-  app.innerHTML = `<div class="card"><h2>PTT Connect admin</h2>
+  app.innerHTML = `<div class="card"><img src="/logo.png" alt="Infinity H Group" style="width:110px;height:110px;display:block;margin:0 auto 12px"><h2 style="text-align:center">PTT Connect admin</h2>
     <label>Email<input id="em" type="email" autocomplete="username"></label>
     <label>Password<input id="pw" type="password" autocomplete="current-password"></label>
     <div class="err" id="er">${esc(msg)}</div><button class="btn ok" id="go">Sign in</button></div>`;
@@ -63,9 +69,9 @@ async function boot() {
   if (!user) return loginView();
   const me = await must(sb.from("profiles").select("display_name, role").eq("id", user.id).single());
   if (me.role !== "admin") { await sb.auth.signOut(); return loginView("This account is not an admin."); }
-  app.innerHTML = `<header><h1>PTT Connect · Admin</h1><span class="sp"></span><span class="muted">${esc(me.display_name)}</span>
+  app.innerHTML = `<header><img src="/logo.png" alt="" style="width:38px;height:38px"><h1>PTT Connect · Admin</h1><span class="sp"></span><span class="muted">${esc(me.display_name)}</span>
     <button class="btn" id="out">Sign out</button></header>
-    <nav>${["active","users","devices","channels","log","radios"].map(t => `<button data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</nav>
+    <nav>${["active","users","devices","channels","plans","subscriptions","settings","log","radios"].map(t => `<button data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("")}</nav>
     <main id="main"></main>`;
   out.onclick = async () => { await sb.auth.signOut(); loginView(); };
   document.querySelectorAll("nav button").forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
@@ -123,6 +129,65 @@ const views = {
               ${m.role !== "owner" ? `<button class="btn bad" data-act="kick" data-ch="${c.id}" data-id="${m.user_id}">Remove</button>` : ""}</td></tr>`).join("") || `<tr><td class="muted" colspan=4>No members</td></tr>`}</table>`;
     }).join("")}`;
   },
+  async plans() {
+    const rows = await must(sb.from("plans").select("*").order("sort_order"));
+    const r = c => c == null ? "" : (c / 100).toFixed(2);
+    return `<h2>Plans & prices</h2>
+      <p class="muted">Prices in Rand. Leave a price empty to not sell that option online (e.g. Business = "contact us").
+      Limits: empty = unlimited. Changes apply to NEW sign-ups; existing PayFast subscriptions keep the price they signed up at.</p>
+      <table><tr><th>Plan</th><th>Monthly R</th><th>Yearly R</th><th>Max channels</th><th>Users / channel</th><th>Selling points (one per line)</th><th>On sale</th><th></th></tr>
+      ${rows.map(p => {
+        const save = p.monthly_price_cents && p.yearly_price_cents ? Math.round(100 - p.yearly_price_cents / (p.monthly_price_cents * 12) * 100) : null;
+        return `<tr><td><b>${esc(p.code)}</b><br><input id="pn-${p.code}" value="${esc(p.name)}"><br>
+          <input id="pd-${p.code}" class="small" value="${esc(p.description ?? "")}" placeholder="Short description"></td>
+        <td><input id="pm-${p.code}" class="money" type="number" step="0.01" min="0" value="${r(p.monthly_price_cents)}" placeholder="–"></td>
+        <td><input id="py-${p.code}" class="money" type="number" step="0.01" min="0" value="${r(p.yearly_price_cents)}" placeholder="–">
+          ${save != null ? `<div class="muted small">${save > 0 ? `saves ${save}%` : "no yearly saving"}</div>` : ""}</td>
+        <td><input id="pc-${p.code}" class="money" type="number" min="0" value="${p.max_channels ?? ""}" placeholder="∞"></td>
+        <td><input id="pu-${p.code}" class="money" type="number" min="0" value="${p.max_members_per_channel ?? ""}" placeholder="∞"></td>
+        <td><textarea id="pf-${p.code}">${esc((p.features || []).join("\n"))}</textarea></td>
+        <td><input id="pa-${p.code}" type="checkbox" ${p.active ? "checked" : ""}></td>
+        <td><button class="btn ok" data-act="savePlan" data-code="${esc(p.code)}">Save</button></td></tr>`; }).join("")}</table>
+      <h2 style="margin-top:24px">Add a plan</h2>
+      <div class="row"><input id="np-code" placeholder="code, e.g. enterprise"><input id="np-name" placeholder="Name"><button class="btn ok" data-act="addPlan">Add</button></div>`;
+  },
+  async subscriptions() {
+    const subs = await must(sb.from("subscriptions").select("*, profiles(display_name), plans(name)").order("current_period_end"));
+    const pays = await must(sb.from("payments").select("created_at, amount_cents, status, period, plan_code, provider_payment_id, profiles(display_name)").order("created_at", { ascending: false }).limit(100));
+    const users = await must(sb.from("profiles").select("id, display_name").order("display_name"));
+    const plans = await must(sb.from("plans").select("code, name").order("sort_order"));
+    const R = c => "R" + (c / 100).toFixed(2);
+    const stTag = s => `<span class="tag ${s === "active" ? "on" : s === "cancelled" ? "warn" : "bad"}">${s}</span>`;
+    const yearOn = new Date(Date.now() + 365 * 864e5).toISOString().slice(0, 10);
+    return `<h2>Subscriptions (${subs.length})</h2>
+      <table><tr><th>Client</th><th>Plan</th><th>Billing</th><th>Status</th><th>Paid until</th><th>Via</th><th></th></tr>
+      ${subs.map(x => `<tr><td>${esc(x.profiles?.display_name)}</td><td>${esc(x.plans?.name ?? x.plan_code)}</td>
+        <td>${R(x.amount_cents)} / ${x.period === "monthly" ? "month" : "year"}</td><td>${stTag(new Date(x.current_period_end) < new Date() ? "expired" : x.status)}${x.cancel_at_period_end ? ` <span class="muted small">ends, not renewing</span>` : ""}</td>
+        <td>${new Date(x.current_period_end).toLocaleDateString()}</td><td>${x.provider}</td>
+        <td><button class="btn bad" data-act="removeSub" data-id="${x.user_id}">Remove</button></td></tr>`).join("") || `<tr><td colspan=7 class="muted">No subscriptions yet</td></tr>`}</table>
+      <h2 style="margin-top:24px">Give a plan by hand</h2>
+      <p class="muted">For Business clients, EFT/cash payments or free accounts. Does not charge anyone.</p>
+      <div class="row">
+        <select id="ms-user">${users.map(u => `<option value="${u.id}">${esc(u.display_name)}</option>`).join("")}</select>
+        <select id="ms-plan">${plans.map(p => `<option value="${esc(p.code)}">${esc(p.name)}</option>`).join("")}</select>
+        <select id="ms-period"><option value="monthly">monthly</option><option value="yearly" selected>yearly</option></select>
+        <input id="ms-until" type="date" value="${yearOn}">
+        <input id="ms-amount" class="money" type="number" step="0.01" placeholder="Amount R">
+        <button class="btn ok" data-act="manualSub">Save</button></div>
+      <h2 style="margin-top:24px">Payments (latest 100)</h2>
+      <table><tr><th>Date</th><th>Client</th><th>Plan</th><th>Amount</th><th>Status</th><th>PayFast ref</th></tr>
+      ${pays.map(p => `<tr><td>${new Date(p.created_at).toLocaleString()}</td><td>${esc(p.profiles?.display_name ?? "–")}</td>
+        <td>${esc(p.plan_code)} (${p.period})</td><td>${R(p.amount_cents)}</td>
+        <td><span class="tag ${p.status === "complete" ? "on" : p.status === "pending" ? "" : "bad"}">${p.status}</span></td>
+        <td class="muted">${esc(p.provider_payment_id ?? "")}</td></tr>`).join("") || `<tr><td colspan=6 class="muted">No payments yet</td></tr>`}</table>`;
+  },
+  async settings() {
+    const rows = await must(sb.from("app_settings").select("*").order("key"));
+    return `<h2>Settings</h2><p class="muted">Values are JSON: numbers like <code>14</code>, true/false, or text in quotes like <code>"basic"</code>.</p>
+      <table><tr><th>Setting</th><th>Value</th><th>What it does</th><th></th></tr>
+      ${rows.map(r => `<tr><td><b>${esc(r.key)}</b></td><td><input id="set-${esc(r.key)}" value="${esc(JSON.stringify(r.value))}"></td>
+        <td class="muted">${esc(r.description ?? "")}</td><td><button class="btn ok" data-act="saveSetting" data-key="${esc(r.key)}">Save</button></td></tr>`).join("")}</table>`;
+  },
   async log() {
     const rows = await must(sb.from("connection_log").select("created_at, event, device_uid, detail, profiles(display_name), channels(name)").order("created_at", { ascending: false }).limit(300));
     return `<h2>Connection history (latest 300)</h2><table><tr><th>Time</th><th>Event</th><th>User</th><th>Channel</th><th>Device / detail</th></tr>
@@ -152,6 +217,35 @@ const actions = {
   talk: async d => { await must(sb.rpc("admin_set_can_talk", { p_channel_id: d.ch, p_user_id: d.id, p_can_talk: d.can !== "true" })); render(); },
   kick: async d => { if (confirm("Remove this member from the channel?")) { await must(sb.rpc("remove_member", { p_channel_id: d.ch, p_user_id: d.id })); render(); } },
   archive: async d => { await must(sb.from("channels").update({ archived: d.arch !== "true" }).eq("id", d.id)); render(); },
+  savePlan: async d => {
+    const c = d.code, v = id => document.getElementById(id + c).value.trim();
+    const cents = x => x === "" ? null : Math.round(parseFloat(x) * 100);
+    const int = x => x === "" ? null : parseInt(x, 10);
+    await must(sb.from("plans").update({
+      name: v("pn-"), description: v("pd-") || null, monthly_price_cents: cents(v("pm-")), yearly_price_cents: cents(v("py-")),
+      max_channels: int(v("pc-")), max_members_per_channel: int(v("pu-")),
+      features: document.getElementById("pf-" + c).value.split("\n").map(x => x.trim()).filter(Boolean),
+      active: document.getElementById("pa-" + c).checked, is_custom: v("pm-") === "" && v("py-") === "", updated_at: new Date().toISOString(),
+    }).eq("code", c));
+    render();
+  },
+  addPlan: async () => {
+    const code = document.getElementById("np-code").value.trim().toLowerCase(), name = document.getElementById("np-name").value.trim();
+    if (!/^[a-z0-9_-]{2,30}$/.test(code) || !name) return alert("Code: 2–30 lowercase letters/numbers; name required");
+    await must(sb.from("plans").insert({ code, name, is_custom: true, active: false, sort_order: 100 })); render();
+  },
+  removeSub: async d => { if (confirm("Remove this subscription? (PayFast billing is NOT cancelled by this – cancel in PayFast too.)")) { await must(sb.rpc("admin_set_subscription", { p_user: d.id, p_plan: null, p_period: null, p_ends_at: null })); render(); } },
+  manualSub: async () => {
+    const g = id => document.getElementById(id).value;
+    if (!g("ms-until")) return alert("Choose an end date");
+    await must(sb.rpc("admin_set_subscription", { p_user: g("ms-user"), p_plan: g("ms-plan"), p_period: g("ms-period"),
+      p_ends_at: new Date(g("ms-until") + "T23:59:59").toISOString(), p_amount_cents: Math.round(parseFloat(g("ms-amount") || "0") * 100) }));
+    render();
+  },
+  saveSetting: async d => {
+    let val; try { val = JSON.parse(document.getElementById("set-" + d.key).value); } catch { return alert("Not valid JSON – text needs \"quotes\""); }
+    await must(sb.from("app_settings").update({ value: val, updated_at: new Date().toISOString() }).eq("key", d.key)); render();
+  },
   addRadio: async () => {
     if (!rb.value.trim() || !rm.value.trim()) return alert("Brand and model are required");
     const { data: { user } } = await sb.auth.getUser();

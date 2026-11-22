@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PTT Connect</title>
+<title>PTT Connect – Infinity H Group</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   body { margin:0; font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0e1116; color:#e6edf3; display:grid; place-items:center; min-height:100vh; }
   .card { background:#161b22; border:1px solid #2a313c; border-radius:10px; padding:28px; max-width:420px; width:90%; }
@@ -15,7 +17,8 @@
 </head>
 <body>
 <div class="card">
-  <h1>PTT Connect server</h1>
+  <img src="/logo.png" alt="Infinity H Group" style="width:120px;height:120px;display:block;margin:0 auto 14px">
+  <h1 style="text-align:center">PTT Connect server</h1>
   <div id="status" class="muted">Checking configuration…</div>
   <ul id="checks" class="muted"></ul>
   <a class="btn" href="/admin">Open admin</a>
@@ -26,7 +29,8 @@ fetch("/api/health").then(r => r.json()).then(h => {
   const s = document.getElementById("status");
   s.innerHTML = h.ok ? '<span class="ok">● Everything is configured</span>' : '<span class="bad">● Setup incomplete – see below</span>';
   document.getElementById("checks").innerHTML = Object.entries(h.checks || {})
-    .map(([k, v]) => `<li><span class="${v === "ok" || v.startsWith("set") ? "ok" : "bad"}">${v === "ok" || v.startsWith("set") ? "✓" : "✗"}</span> ${k}: ${v}</li>`).join("");
+    .map(([k, v]) => { const good = v === "ok" || v.startsWith("set"), opt = v.startsWith("optional");
+      return `<li><span class="${good ? "ok" : opt ? "muted" : "bad"}">${good ? "✓" : opt ? "–" : "✗"}</span> ${k}: ${v}</li>`; }).join("");
 }).catch(() => {
   document.getElementById("status").innerHTML = '<span class="bad">● API not reachable – check that Root Directory is set to "vercel"</span>';
 });

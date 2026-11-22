@@ -1,5 +1,6 @@
 package com.pttconnect.app.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -41,6 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import com.pttconnect.app.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,6 +64,7 @@ fun ChannelsScreen(
     onEnter: (Channel) -> Unit,
     onBack: (() -> Unit)?,
     onSettings: () -> Unit,
+    onSubscription: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var channels by remember { mutableStateOf<List<Channel>?>(null) }
@@ -84,7 +89,10 @@ fun ChannelsScreen(
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back", tint = Pal.text) }
+            Image(painterResource(R.drawable.brand_logo), "Infinity H Group", Modifier.size(40.dp))
+            Spacer(Modifier.width(10.dp))
             Text("Channels", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Pal.text, modifier = Modifier.weight(1f))
+            TextButton(onClick = onSubscription) { Text("Plan", color = Color(0xFFF47B20), fontWeight = FontWeight.SemiBold) }
             IconButton(onClick = { reload() }) { Icon(Icons.Filled.Refresh, "Refresh", tint = Pal.muted) }
             IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "Settings", tint = Pal.muted) }
         }
@@ -92,7 +100,11 @@ fun ChannelsScreen(
             OutlinedButton(onClick = { showCreate = true }) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(6.dp)); Text("New channel") }
             OutlinedButton(onClick = { showCall = true }) { Icon(Icons.Filled.Person, null); Spacer(Modifier.width(6.dp)); Text("Private call") }
         }
-        error?.let { Text(it, color = Pal.red, modifier = Modifier.padding(vertical = 8.dp)) }
+        error?.let {
+            Text(it, color = Pal.red, modifier = Modifier.padding(vertical = 8.dp))
+            if (it.contains("plan", ignoreCase = true) || it.contains("subscription", ignoreCase = true))
+                OutlinedButton(onClick = onSubscription) { Text("View plans") }
+        }
         val list = channels
         when {
             list == null && error == null -> Text("Loading…", color = Pal.muted)

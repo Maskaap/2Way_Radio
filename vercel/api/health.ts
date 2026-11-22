@@ -19,6 +19,13 @@ export default handler(async (_req: VercelRequest, res: VercelResponse) => {
   if (lk) checks.LIVEKIT_URL = /^wss:\/\/.+/.test(lk) ? `set (${lk})` : `WRONG: must start with wss:// (got "${lk.slice(0, 40)}")`;
   checks.database = await checkDatabase();
   const ok = Object.values(checks).every((v) => v === "ok" || v.startsWith("set"));
+  // Payments are optional: shown, but they don't make the server "not ok".
+  for (const k of ["PAYFAST_MERCHANT_ID", "PAYFAST_MERCHANT_KEY", "PAYFAST_PASSPHRASE"]) {
+    checks[k] = process.env[k] ? "set" : "optional – not set (payments disabled)";
+  }
+  if (process.env.PAYFAST_MERCHANT_ID) {
+    checks.PAYFAST_MODE = (process.env.PAYFAST_SANDBOX ?? "true").trim() !== "false" ? "set (SANDBOX – test payments only)" : "set (LIVE – real money)";
+  }
   res.status(ok ? 200 : 500).json({ ok, checks });
 });
 

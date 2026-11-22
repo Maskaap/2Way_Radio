@@ -22,6 +22,7 @@ struct RootView: View {
     var body: some View {
         VStack(spacing: 16) {
             if backend.session == nil {
+                Image("Logo").resizable().scaledToFit().frame(width: 140, height: 140)
                 Text("PTT Connect").font(.largeTitle.bold())
                 TextField("E-mail", text: $email).textInputAutocapitalization(.never).textFieldStyle(.roundedBorder)
                 SecureField("Password", text: $password).textFieldStyle(.roundedBorder)

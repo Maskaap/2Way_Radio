@@ -27,16 +27,18 @@ export default handler(async (req: VercelRequest, res: VercelResponse) => {
   if (userErr || !userData.user) throw new HttpError(401, "invalid_token");
   const userId = userData.user.id;
 
-  const [profile, channel, membership, device] = await Promise.all([
+  const [profile, channel, membership, device, access] = await Promise.all([
     db.from("profiles").select("id, display_name, disabled").eq("id", userId).maybeSingle(),
     db.from("channels").select("id, kind, archived").eq("id", channelId).maybeSingle(),
     db.from("channel_members").select("can_talk").eq("channel_id", channelId).eq("user_id", userId).maybeSingle(),
     db.from("devices").select("blocked, blocked_reason, user_id").eq("device_uid", deviceUid).maybeSingle(),
+    db.rpc("access_for", { p_user: userId }),
   ]);
-  for (const r of [profile, channel, membership, device]) if (r.error) throw r.error;
+  for (const r of [profile, channel, membership, device, access]) if (r.error) throw r.error;
 
   const decision = decideToken({
     profile: profile.data, channel: channel.data, membership: membership.data, device: device.data,
+    hasAccess: Boolean((access.data as any)?.has_access),
   });
   if (!decision.ok) throw new HttpError(decision.status, decision.code, decision.message);
 

@@ -71,4 +71,63 @@ data class Session(
     }
 }
 
+data class Plan(
+    val code: String,
+    val name: String,
+    val description: String?,
+    val monthlyCents: Int?,
+    val yearlyCents: Int?,
+    val isCustom: Boolean,
+    val maxChannels: Int?,
+    val maxMembers: Int?,
+    val features: List<String>,
+) {
+    fun priceCents(yearly: Boolean) = if (yearly) yearlyCents else monthlyCents
+    /** Yearly saving vs 12 × monthly, in %, or null. */
+    val yearlySavingPct: Int? get() = if (monthlyCents != null && yearlyCents != null && monthlyCents > 0)
+        Math.round(100 - yearlyCents * 100.0 / (monthlyCents * 12)).toInt().takeIf { it > 0 } else null
+
+    companion object {
+        fun from(o: JSONObject) = Plan(
+            code = o.getString("code"), name = o.getString("name"),
+            description = o.optString("description").takeIf { it.isNotBlank() && it != "null" },
+            monthlyCents = if (o.isNull("monthly_price_cents")) null else o.getInt("monthly_price_cents"),
+            yearlyCents = if (o.isNull("yearly_price_cents")) null else o.getInt("yearly_price_cents"),
+            isCustom = o.optBoolean("is_custom"),
+            maxChannels = if (o.isNull("max_channels")) null else o.getInt("max_channels"),
+            maxMembers = if (o.isNull("max_members_per_channel")) null else o.getInt("max_members_per_channel"),
+            features = o.optJSONArray("features")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
+        )
+    }
+}
+
+data class MySubscription(
+    val hasAccess: Boolean,
+    val source: String,          // subscription | trial | admin | none
+    val planCode: String?,
+    val planName: String?,
+    val period: String?,
+    val status: String?,
+    val endsAt: String?,
+    val cancelAtPeriodEnd: Boolean,
+    val provider: String?,
+    val salesEmail: String?,
+) {
+    companion object {
+        fun from(o: JSONObject) = MySubscription(
+            hasAccess = o.optBoolean("has_access"), source = o.optString("source", "none"),
+            planCode = o.optString("plan_code").takeIf { it.isNotBlank() && it != "null" },
+            planName = o.optString("plan_name").takeIf { it.isNotBlank() && it != "null" },
+            period = o.optString("period").takeIf { it.isNotBlank() && it != "null" },
+            status = o.optString("status").takeIf { it.isNotBlank() && it != "null" },
+            endsAt = (o.optString("ends_at").takeIf { it.isNotBlank() && it != "null" } ?: o.optString("ended_at").takeIf { it.isNotBlank() && it != "null" })?.take(10),
+            cancelAtPeriodEnd = o.optBoolean("cancel_at_period_end"),
+            provider = o.optString("provider").takeIf { it.isNotBlank() && it != "null" },
+            salesEmail = o.optString("sales_email").takeIf { it.isNotBlank() && it != "null" },
+        )
+    }
+}
+
+fun formatRand(cents: Int): String = if (cents % 100 == 0) "R${cents / 100}" else "R%.2f".format(cents / 100.0)
+
 class BackendException(val code: String, message: String = code, val httpStatus: Int = 0) : Exception(message)
