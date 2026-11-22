@@ -1,0 +1,61 @@
+name: Build Android APK
+
+# Run manually: GitHub → Actions → "Build Android APK" → Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Your Vercel site address, e.g. https://2way-radio.vercel.app"
+        required: true
+        type: string
+
+permissions:
+  contents: write   # needed to publish the APK as a Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Point the app at your server
+        run: |
+          URL="${{ inputs.api_url }}"
+          URL="${URL%/}"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "ptt.apiBaseUrl=$URL" >> local.properties
+          cat local.properties
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/PTT-Connect.apk"
+
+      - name: Keep APK as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PTT-Connect-apk
+          path: PTT-Connect.apk
+
+      - name: Publish as a downloadable Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: PTT Connect test build ${{ github.run_number }}
+          body: |
+            Test build for: ${{ inputs.api_url }}
+            Open this page on your Android phone and tap PTT-Connect.apk to download and install.
+          files: PTT-Connect.apk
